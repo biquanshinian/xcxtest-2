@@ -59,7 +59,8 @@ function formatOrder(raw) {
     refundText = '已退 ¥' + fenToYuan(raw.refundFee != null ? raw.refundFee : raw.amount) +
       (refundMs ? '（' + fmtTime(refundMs) + '）' : '')
   } else if (raw.status === 'refund_pending') {
-    refundText = '退款处理中，1-3 个工作日到账'
+    const apple = raw.payChannel === 'apple' || String(raw.platform || '').toLowerCase() === 'ios'
+    refundText = apple ? 'Apple 退款处理中' : '退款处理中，1-3 个工作日到账'
   }
 
   return {
@@ -67,6 +68,7 @@ function formatOrder(raw) {
     name: raw.description || '会员商品',
     orderType: raw.orderType === 'subscription' ? 'subscription' : 'product',
     typeText: typeText,
+    isApplePay: raw.payChannel === 'apple' || String(raw.platform || '').toLowerCase() === 'ios',
     amountText: fenToYuan(raw.amount),
     statusText: status.text,
     statusClass: status.cls,

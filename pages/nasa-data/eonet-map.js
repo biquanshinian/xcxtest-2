@@ -1,5 +1,6 @@
-const { buildMapLayoutData } = require('./utils/map-page-common.js')
+const { buildMapLayoutData, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const pageBase = require('../../utils/page-base.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -16,14 +17,21 @@ Page({
     status: '',
     isOpen: true,
     statusBarHeight: 44,
-    mapActionTop: 0
+    menuButtonWidth: 88,
+    isDirectEntry: false,
+    mapActionTop: 0,
+    actionMenuCollapsed: true,
+    enableSatellite: true,
+    shareImage: SHARE_THUMB_FALLBACK,
+    mapSetting: { enableSatellite: true }
   },
 
   onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     const layout = buildMapLayoutData(getApp())
     this.setData({
-      mapActionTop: layout.mapActionTop
+      ...layout
     })
 
     const lat = parseFloat(options.lat) || 0
@@ -75,10 +83,19 @@ Page({
     })
   },
 
+  toggleActionMenuCollapsed() {
+    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
+  },
+
   onShareAppMessage() {
     return {
       title: `${this.data.title || '地球事件'} | NASA 数据中心 - 火星探索日志`,
-      path: `/pages/nasa-data/eonet-map?lat=${this.data.latitude}&lng=${this.data.longitude}&title=${encodeURIComponent(this.data.title)}&category=${encodeURIComponent(this.data.category)}`
+      path: `/pages/nasa-data/eonet-map?lat=${this.data.latitude}&lng=${this.data.longitude}&title=${encodeURIComponent(this.data.title)}&category=${encodeURIComponent(this.data.category)}`,
+      imageUrl: pageShareImage(this)
     }
   }
 })

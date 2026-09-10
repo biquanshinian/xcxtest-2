@@ -1,0 +1,417 @@
+/* 现场奖品卡（抽卡结果 / 卡册详情共用）
+ * 票券式领奖凭证：品牌栏 + 奖品大图 + 价值行 + 撕裂线 + 凭证存根。
+ * 默认深色实体卡；宿主根节点挂 theme-light 时走文末浅色反色（票券纸质感）。
+ * 分档由 utils/prize-card.js 按奖品价值解析：N 纪念 / R 甄选 / SR 珍稀 / SSR 压轴。
+ */
+
+.pcard {
+  display: flex;
+  flex-direction: column;
+  padding: 24rpx;
+  box-sizing: border-box;
+  border-radius: 28rpx;
+  background:
+    radial-gradient(120% 90% at 85% -10%, rgba(99, 102, 241, 0.16), transparent 55%),
+    linear-gradient(170deg, #17181c, #0b0c0e);
+  border: 2rpx solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  position: relative;
+}
+
+.pcard--N { border-color: rgba(156, 163, 175, 0.55); }
+
+.pcard--R {
+  border-color: rgba(59, 130, 246, 0.75);
+  box-shadow: 0 0 48rpx rgba(59, 130, 246, 0.35);
+}
+
+.pcard--SR {
+  border-color: rgba(168, 85, 247, 0.8);
+  box-shadow: 0 0 64rpx rgba(168, 85, 247, 0.45);
+}
+
+.pcard--SSR {
+  border-color: rgba(251, 191, 36, 0.9);
+  box-shadow: 0 0 80rpx rgba(251, 191, 36, 0.5);
+}
+
+/* 扫光：由宿主触发（翻面后 / 静态展示进场）向右掠过一次 */
+.pcard-shine {
+  position: absolute;
+  top: -20%;
+  left: 0;
+  width: 26%;
+  height: 140%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  transform: translateX(-260%) rotate(14deg);
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes pcard-shine-sweep {
+  0% { transform: translateX(-260%) rotate(14deg); }
+  100% { transform: translateX(460%) rotate(14deg); }
+}
+
+/* ── 品牌栏 ── */
+.pcard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.pcard-brand {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.pcard-brand-mark {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 14rpx;
+  background: linear-gradient(150deg, #312e81, #0b0c0e);
+  border: 1rpx solid rgba(129, 140, 248, 0.5);
+  color: #A5B4FC;
+  font-size: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pcard-brand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  min-width: 0;
+}
+
+.pcard-brand-name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.2;
+}
+
+.pcard-brand-en {
+  font-size: 16rpx;
+  letter-spacing: 3rpx;
+  color: rgba(255, 255, 255, 0.38);
+  line-height: 1.2;
+}
+
+.pcard-tier {
+  flex-shrink: 0;
+  padding: 8rpx 22rpx;
+  border-radius: 26rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  border: 1rpx solid transparent;
+}
+
+.pcard-tier--N {
+  color: #D1D5DB;
+  background: rgba(156, 163, 175, 0.16);
+  border-color: rgba(156, 163, 175, 0.4);
+}
+
+.pcard-tier--R {
+  color: #93C5FD;
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.pcard-tier--SR {
+  color: #E9D5FF;
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.55);
+}
+
+.pcard-tier--SSR {
+  color: #FDE68A;
+  background: linear-gradient(120deg, rgba(251, 191, 36, 0.26), rgba(249, 115, 22, 0.16));
+  border-color: rgba(251, 191, 36, 0.65);
+}
+
+/* ── 奖品大图 ── */
+.pcard-media {
+  position: relative;
+  margin-top: 20rpx;
+  height: 300rpx;
+  border-radius: 18rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.pcard-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pcard-image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 88rpx;
+  color: rgba(165, 180, 252, 0.65);
+}
+
+.pcard-media-en {
+  position: absolute;
+  left: 16rpx;
+  bottom: 12rpx;
+  font-size: 18rpx;
+  letter-spacing: 4rpx;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.8);
+}
+
+.pcard-serial-chip {
+  position: absolute;
+  right: 12rpx;
+  bottom: 12rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 20rpx;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.88);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 名称 / 价值 ── */
+.pcard-name {
+  margin-top: 20rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.pcard-value {
+  margin-top: 8rpx;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6rpx;
+}
+
+.pcard-value-sym {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #FBBF24;
+}
+
+.pcard-value-num {
+  font-size: 52rpx;
+  font-weight: 800;
+  color: #FBBF24;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pcard-value-note {
+  margin-left: 10rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.pcard-desc {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  max-height: 74rpx;
+  overflow: hidden;
+}
+
+/* ── 撕裂线（票券打孔） ── */
+.pcard-tear {
+  position: relative;
+  margin: auto -24rpx 0;
+  padding: 0 36rpx;
+  height: 36rpx;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pcard-tear-line {
+  flex: 1;
+  border-top: 2rpx dashed rgba(255, 255, 255, 0.22);
+}
+
+.pcard-tear-notch {
+  position: absolute;
+  top: 50%;
+  width: 28rpx;
+  height: 28rpx;
+  border-radius: 50%;
+  background: #0b0c0e;
+  border: 2rpx solid rgba(255, 255, 255, 0.16);
+  transform: translateY(-50%);
+}
+
+.pcard-tear-notch--l { left: -16rpx; }
+.pcard-tear-notch--r { right: -16rpx; }
+
+/* ── 凭证存根 ── */
+.pcard-stub {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  flex-shrink: 0;
+}
+
+.pcard-stub-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.pcard-stub-label {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 2rpx;
+}
+
+.pcard-stub-value {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.78);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcard-redeem {
+  margin-top: 6rpx;
+  padding: 10rpx 0;
+  border-radius: 14rpx;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1rpx dashed rgba(251, 191, 36, 0.4);
+  font-size: 20rpx;
+  color: #FDE68A;
+  text-align: center;
+  letter-spacing: 1rpx;
+}
+
+/* ============================================================
+ * 明亮主题：浅色票券纸质感（深色字 / 浅底 / 撕裂孔对齐浅色遮罩）
+ * ============================================================ */
+
+.theme-light .pcard {
+  background:
+    radial-gradient(120% 90% at 85% -10%, rgba(99, 102, 241, 0.1), transparent 55%),
+    linear-gradient(170deg, #ffffff, #f3f4f6);
+  border-color: rgba(28, 28, 30, 0.12);
+}
+
+.theme-light .pcard--N { border-color: rgba(107, 114, 128, 0.45); }
+
+.theme-light .pcard--R {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 36rpx rgba(37, 99, 235, 0.16);
+}
+
+.theme-light .pcard--SR {
+  border-color: rgba(124, 58, 237, 0.55);
+  box-shadow: 0 0 48rpx rgba(124, 58, 237, 0.18);
+}
+
+.theme-light .pcard--SSR {
+  border-color: rgba(180, 83, 9, 0.55);
+  box-shadow: 0 0 56rpx rgba(245, 158, 11, 0.22);
+}
+
+.theme-light .pcard-shine {
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+}
+
+.theme-light .pcard-brand-mark {
+  background: linear-gradient(150deg, #e0e7ff, #ffffff);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #4338CA;
+}
+
+.theme-light .pcard-brand-name { color: #1C1C1E; }
+.theme-light .pcard-brand-en { color: rgba(28, 28, 30, 0.4); }
+
+.theme-light .pcard-tier--N {
+  color: #4B5563;
+  background: rgba(156, 163, 175, 0.18);
+  border-color: rgba(107, 114, 128, 0.35);
+}
+
+.theme-light .pcard-tier--R {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+.theme-light .pcard-tier--SR {
+  color: #6D28D9;
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.4);
+}
+
+.theme-light .pcard-tier--SSR {
+  color: #B45309;
+  background: linear-gradient(120deg, rgba(251, 191, 36, 0.22), rgba(249, 115, 22, 0.1));
+  border-color: rgba(180, 83, 9, 0.45);
+}
+
+.theme-light .pcard-media {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(28, 28, 30, 0.08);
+}
+
+.theme-light .pcard-image--empty { color: rgba(67, 56, 202, 0.55); }
+
+.theme-light .pcard-media-en {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.55);
+}
+
+.theme-light .pcard-serial-chip {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(28, 28, 30, 0.12);
+  color: #1C1C1E;
+}
+
+.theme-light .pcard-name { color: #1C1C1E; }
+
+.theme-light .pcard-value-sym,
+.theme-light .pcard-value-num { color: #B45309; }
+
+.theme-light .pcard-value-note { color: rgba(28, 28, 30, 0.45); }
+.theme-light .pcard-desc { color: rgba(28, 28, 30, 0.55); }
+
+.theme-light .pcard-tear-line { border-top-color: rgba(28, 28, 30, 0.16); }
+
+/* 撕裂孔对齐浅色遮罩底色（album / gacha overlay） */
+.theme-light .pcard-tear-notch {
+  background: #E8EAED;
+  border-color: rgba(28, 28, 30, 0.12);
+}
+
+.theme-light .pcard-stub-label { color: rgba(28, 28, 30, 0.4); }
+.theme-light .pcard-stub-value { color: rgba(28, 28, 30, 0.78); }
+
+.theme-light .pcard-redeem {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(180, 83, 9, 0.4);
+  color: #B45309;
+}

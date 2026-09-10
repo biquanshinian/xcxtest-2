@@ -19,15 +19,22 @@ const THEME_SYSTEM = 'system'
 let _mode = ''
 let _systemTheme = ''
 
+function _readStoredThemeMode() {
+  try {
+    const storageCache = require('./storage-sync-cache.js')
+    if (storageCache.isLoaded(THEME_STORAGE_KEY)) {
+      return storageCache.getMem(THEME_STORAGE_KEY)
+    }
+  } catch (e) {}
+  return undefined
+}
+
 /** 当前主题模式：'dark' | 'light' | 'system'（未显式选择过时默认跟随系统） */
 function getThemeModeSync() {
   if (_mode) return _mode
-  try {
-    const saved = wx.getStorageSync(THEME_STORAGE_KEY)
-    _mode = (saved === THEME_LIGHT || saved === THEME_DARK) ? saved : THEME_SYSTEM
-  } catch (e) {
-    _mode = THEME_SYSTEM
-  }
+  const saved = _readStoredThemeMode()
+  if (saved === undefined) return THEME_SYSTEM
+  _mode = (saved === THEME_LIGHT || saved === THEME_DARK) ? saved : THEME_SYSTEM
   return _mode
 }
 
@@ -67,29 +74,48 @@ function isLightSync() {
  * （它们不调本方法，沿用页面 json 的 navigationBarTextStyle）。
  */
 let _lastNavSyncAt = 0
+
+/** 栈顶页面是否声明恒定深色（页面实例挂 forceDarkTheme: true，如指挥控制台） */
+function _topPageForcesDark() {
+  try {
+    const pages = (typeof getCurrentPages === 'function' && getCurrentPages()) || []
+    const cur = pages.length ? pages[pages.length - 1] : null
+    return !!(cur && cur.forceDarkTheme)
+  } catch (e) {
+    return false
+  }
+}
+
 function _scheduleNavBarSync(force) {
   const now = Date.now()
   if (!force && now - _lastNavSyncAt < 200) return
   _lastNavSyncAt = now
   setTimeout(() => {
     try {
+      // wx.setNavigationBarColor 作用于执行时刻的栈顶页；恒深色沉浸页保持黑底白字
+      const forceDark = _topPageForcesDark()
       wx.setNavigationBarColor({
-        frontColor: isLightSync() ? '#000000' : '#ffffff',
-        backgroundColor: getPageBgSync(),
+        frontColor: (!forceDark && isLightSync()) ? '#000000' : '#ffffff',
+        backgroundColor: forceDark ? '#000000' : getPageBgSync(),
         fail: () => {}
       })
     } catch (e) {}
   }, 0)
 }
 
-/** 页面根 view 的主题类名（深色为空串，保持现有样式零改动） */
-function getThemeClassSync() {
-  const cls = isLightSync() ? 'theme-light' : ''
+/**
+ * 页面根 view 的主题类名（深色为空串，保持现有样式零改动）
+ * @param {boolean} [isMomentsPreview] 朋友圈单页时追加 is-moments-single，用于隐藏自定义顶栏
+ */
+function getThemeClassSync(isMomentsPreview) {
+  const parts = []
+  if (isLightSync()) parts.push('theme-light')
+  if (isMomentsPreview) parts.push('is-moments-single')
   _scheduleNavBarSync(false)
-  return cls
+  return parts.join(' ')
 }
 
-/** page-meta / wx.setBackgroundColor 用的页面底色 */
+/** page-meta / wx.setBackgroundColor 用的页面底色（与 Tab 全屏磨砂同色，切 Tab 不闪黑/闪白） */
 function getPageBgSync() {
   return isLightSync() ? '#F2F2F7' : '#000000'
 }
@@ -100,12 +126,15 @@ function applyThemeToPage(page) {
   // Tab 页的自定义 TabBar 是独立组件实例（每页一份），切主题时 refreshAllPages
   // 只能刷到当前页面栈里的那份，其余 Tab 页回显时须在这里补刷（非 Tab 页安全 no-op）
   applyThemeToTabBar(page)
-  const cls = getThemeClassSync()
+  // 沉浸式恒深色页（如指挥控制台）不写入 themeClass
+  if (page.forceDarkTheme) return
   const data = page.data || {}
-  if (data.themeClass === cls && data.themeLight === (cls !== '')) return
+  const cls = getThemeClassSync(!!data.isMomentsPreview)
+  const themeLight = isLightSync()
+  if (data.themeClass === cls && data.themeLight === themeLight) return
   page.setData({
     themeClass: cls,
-    themeLight: cls !== '',
+    themeLight,
     pageBgColor: getPageBgSync()
   })
 }
@@ -122,12 +151,14 @@ function applyThemeToTabBar(page) {
 
 /** 同步下拉刷新背景区（page{} 的静态底色无法运行时改，用原生 API 补） */
 function syncWindowBackground() {
-  const c = getPageBgSync()
+  // 同样作用于栈顶页：恒深色沉浸页固定黑底
+  const forceDark = _topPageForcesDark()
+  const c = forceDark ? '#000000' : getPageBgSync()
   try {
     wx.setBackgroundColor({ backgroundColor: c, backgroundColorTop: c, backgroundColorBottom: c })
   } catch (e) {}
   try {
-    wx.setBackgroundTextStyle({ textStyle: isLightSync() ? 'dark' : 'light' })
+    wx.setBackgroundTextStyle({ textStyle: (!forceDark && isLightSync()) ? 'dark' : 'light' })
   } catch (e) {}
 }
 
@@ -156,6 +187,7 @@ function refreshAllPages() {
     applyThemeToPage(p)
     applyThemeToTabBar(p)
   })
+  // 恒深色沉浸页的保护已下沉到 syncWindowBackground / _scheduleNavBarSync 内部
   syncWindowBackground()
   _scheduleNavBarSync(true)
   // 通知已注册组件（单个监听器异常不阻断其余监听器与主流程）
@@ -175,8 +207,10 @@ function setThemeMode(mode) {
   if (m === _mode) return
   _mode = m
   try {
-    wx.setStorageSync(THEME_STORAGE_KEY, m)
-  } catch (e) {}
+    require('./storage-sync-cache.js').persistAsync(THEME_STORAGE_KEY, m)
+  } catch (e) {
+    try { wx.setStorage({ key: THEME_STORAGE_KEY, data: m, fail() {} }) } catch (e2) {}
+  }
   if (m === THEME_SYSTEM) {
     _systemTheme = ''
     getSystemThemeSync()

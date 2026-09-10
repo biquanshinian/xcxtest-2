@@ -1,9 +1,10 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
-const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
+const { getRoadClosureNotice } = require('./utils/api-road-closure.js')
 const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const { applyStarbaseI18n, translateMayorOrderBody } = require('./utils/starbase-i18n.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
+const { SHARE_THUMB_FALLBACK } = require('../../utils/share-thumb.js')
 
 Page({
   data: {
@@ -13,6 +14,8 @@ Page({
     statusBarHeight: 44,
     capsuleTop: 0,
     capsuleHeight: 32,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     mapActionTop: 0,
     latitude: ROAD_CLOSURE_SCENE.center.latitude,
     longitude: ROAD_CLOSURE_SCENE.center.longitude,
@@ -170,6 +173,10 @@ Page({
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
   },
 
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
+  },
+
   onShareAppMessage() {
     return buildMapShareOptions({
       shareTitle: this.data.shareTitle,
@@ -177,6 +184,13 @@ Page({
       fallbackDetailText: '状态',
       path: '/subpackages/progress-extra/road-closure-map'
     })
+  },
+
+  onShareTimeline() {
+    return {
+      title: `${this.data.shareTitle || '封路地图'} · ${this.data.statusLabel || '状态'}`,
+      imageUrl: SHARE_THUMB_FALLBACK
+    }
   },
 
   /**

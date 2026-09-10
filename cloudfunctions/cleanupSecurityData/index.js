@@ -43,9 +43,27 @@ exports.main = async () => {
     safeWhereRemove(VOTES_COLLECTION, { updatedAt: _.lt(voteCutoff) })
   ])
 
+  // 推送风暴垃圾：委托 sendLaunchReminder.purgePushJunk（含 43101 拒收标记）
+  let pushJunk = null
+  try {
+    const r = await cloud.callFunction({
+      name: 'sendLaunchReminder',
+      data: {
+        action: 'purgePushJunk',
+        maxRemove: 2000,
+        keepDays: 2,
+        keepHistoryDays: 7
+      }
+    })
+    pushJunk = (r && r.result) || r
+  } catch (e) {
+    pushJunk = { success: false, error: e && e.message ? e.message : String(e) }
+  }
+
   return {
     success: true,
     ts,
-    removed: { rateLimits, blacklist, cache, usage, voteRecords, votes }
+    removed: { rateLimits, blacklist, cache, usage, voteRecords, votes },
+    pushJunk
   }
 }

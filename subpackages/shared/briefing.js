@@ -5,25 +5,32 @@
  */
 const pageBase = require('./page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
 
+  data: {
+    shareImage: SHARE_THUMB_FALLBACK
+  },
+
   onLoad() {
     this.initUiShell()
+    bootPageShareThumb(this)
   },
 
   onShareAppMessage() {
     return {
       title: '每日太空简报 — 今天太空发生了什么？',
       path: ROUTES.BRIEFING,
-      imageUrl: ''
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
-      title: '每日太空简报 — 今天太空发生了什么？'
+      title: '每日太空简报 — 今天太空发生了什么？',
+      imageUrl: pageShareImage(this)
     }
   }
 })

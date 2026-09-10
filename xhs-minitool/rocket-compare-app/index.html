@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>火箭对照</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+      background: #0B0C0E;
+      color: #F4F1EA;
+    }
+  </style>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <main class="scroller" id="scroller">
+      <section class="view is-active" data-view="home" id="view-home">
+        <button type="button" class="btn-primary" data-action="open-compare">火箭对照</button>
+        <button type="button" class="btn-ghost" data-action="open-sound">轰鸣晚几秒</button>
+      </section>
+
+      <section class="view" data-view="pick" id="view-pick">
+        <p class="pick-hint" id="pick-hint">先选左边</p>
+        <div class="filter-row" id="rocket-filters"></div>
+        <div class="card-list" id="rocket-list"></div>
+      </section>
+
+      <section class="view" data-view="compare" id="view-compare">
+        <div class="radar-panel">
+          <div class="radar-head">
+            <h3>能力雷达</h3>
+            <p>相对约数，用来一眼看出差在哪</p>
+          </div>
+          <canvas id="radar-canvas" width="320" height="248"></canvas>
+          <div class="radar-legend" id="radar-legend"></div>
+          <div class="radar-scores" id="radar-scores"></div>
+        </div>
+        <div class="compare-grid" id="compare-grid"></div>
+        <div class="row-btns">
+          <button type="button" class="btn-ghost row-btn" data-action="swap-left">换左边</button>
+          <button type="button" class="btn-ghost row-btn" data-action="swap-right">换右边</button>
+        </div>
+        <div class="panel">
+          <h3>可复制对照</h3>
+          <div class="selectable note-text" id="compare-note"></div>
+        </div>
+        <div class="bottom-space"></div>
+      </section>
+
+      <section class="view" data-view="sound" id="view-sound">
+        <h2 class="section-title">点火后，轰鸣晚几秒</h2>
+        <div class="filter-row" id="dist-presets"></div>
+        <label class="field-label" for="dist-input">距离（公里）</label>
+        <input id="dist-input" class="field" type="number" min="0.2" max="50" step="0.1" value="5" />
+        <div class="delay-box" id="delay-box"></div>
+        <div class="panel">
+          <h3>可复制说明</h3>
+          <div class="selectable note-text" id="sound-note"></div>
+        </div>
+        <div class="bottom-space"></div>
+      </section>
+    </main>
+
+    <footer class="dock" id="result-dock" hidden>
+      <button type="button" class="btn-primary" data-action="save-card">保存卡片</button>
+      <button type="button" class="btn-ghost" data-action="post-note">发笔记</button>
+      <button type="button" class="btn-ghost" data-action="search-notes">搜相关</button>
+    </footer>
+
+    <div class="toast" id="toast" hidden></div>
+  </div>
+  <script src="./data.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

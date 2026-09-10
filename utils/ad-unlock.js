@@ -2,8 +2,9 @@
  * 激励视频广告临时解锁门控
  * 看完广告 → 按 productId 解锁 10 分钟；过期后再次走会员门控
  *
- * 稳定性要点（胶囊消失 / 自定义导航栏）：
- * 1. 激励视频实例按「当前页 route」绑定，换页则 destroy 再建（官方：仅对当前页有效）
+ * 稳定性要点（胶囊消失 / 自定义导航栏 / 基础库广告单例）：
+ * 1. 激励视频按官方单例复用；仅换页且空闲时 destroy 再建。关闭后立刻 destroy
+ *    会撞上基础库 isUseRecreate，报 adProxy undefined
  * 2. onClose 内禁止同步 Toast / 同步 resolve 跳转，延后让系统层恢复胶囊
  * 3. 关闭后轻量 nudge（读胶囊矩形），再放行业务 navigateTo
  */
@@ -23,6 +24,36 @@ function _unlockTtlMs() {
 }
 const AD_UNIT_ID = rewardedVideoAdUnitId || ''
 
+/** 指定功能看满 N 秒即可解锁（不必等到激励视频 isEnded）；未列出的仍须看完 */
+const AD_MIN_WATCH_SEC_BY_PRODUCT = {
+  starbase_orbit_pano: 15
+}
+
+function getAdMinWatchSec(productId) {
+  const n = Number(AD_MIN_WATCH_SEC_BY_PRODUCT[productId])
+  return n > 0 ? Math.floor(n) : 0
+}
+
+function getAdUnlockActionLabel(productId) {
+  const sec = getAdMinWatchSec(productId)
+  return sec > 0 ? ('看' + sec + '秒广告免费体验') : '看广告免费体验'
+}
+
+/**
+ * 激励广告关闭是否算看够。
+ * minWatchSec=0：与旧逻辑一致（无 res 视为看完，兼容旧基础库）。
+ * minWatchSec>0：必须 isEnded 或前台累计看满 N 秒；无 res 不自动放行。
+ */
+function qualifyRewardedAdClose(res, opts) {
+  const options = opts && typeof opts === 'object' ? opts : {}
+  const minWatchSec = Number(options.minWatchSec) > 0 ? Math.floor(Number(options.minWatchSec)) : 0
+  const watchedMs = Math.max(0, Number(options.watchedMs) || 0)
+  const hasRes = !!(res && typeof res === 'object')
+  const ended = hasRes ? res.isEnded === true : minWatchSec <= 0
+  const watchedEnough = minWatchSec > 0 && watchedMs >= minWatchSec * 1000
+  return !!(ended || watchedEnough)
+}
+
 /** 广告全屏层收起后，给客户端恢复胶囊的时间 */
 const POST_CLOSE_SETTLE_MS = 480
 /** settle 后再稍等一帧再 Toast，避免与 navigateTo 抢同一帧 */
@@ -36,6 +67,10 @@ let _videoAd = null
 let _adRoute = ''
 let _pendingClose = null
 let _busy = false
+let _adBroken = false
+
+/** 广告层尚未出现时的等待上限，避免 show 挂起导致后续无法再拉起 */
+const SHOW_WATCHDOG_MS = 15000
 
 function _readMap() {
   const raw = storageCache.readMemOrSync(STORAGE_KEY, null)
@@ -110,11 +145,23 @@ function _nudgeCapsuleRestore() {
   } catch (e) {}
 }
 
+function _safeAdCall(ad, method) {
+  if (!ad || typeof ad[method] !== 'function') {
+    return Promise.reject(new Error('ad missing ' + method))
+  }
+  try {
+    return Promise.resolve(ad[method]())
+  } catch (e) {
+    return Promise.reject(e)
+  }
+}
+
 function destroyRewardedAd() {
   const ad = _videoAd
   _videoAd = null
   _adRoute = ''
   _pendingClose = null
+  _adBroken = false
   if (!ad) return
   try {
     if (typeof ad.offClose === 'function') ad.offClose()
@@ -135,26 +182,38 @@ function ensureRewardedAd() {
   if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null
 
   const route = getCurrentRoute()
-  if (_videoAd && _adRoute && route && _adRoute !== route) {
+  if (_videoAd && _adBroken && !_busy) {
+    destroyRewardedAd()
+  }
+  if (_videoAd && _adRoute && route && _adRoute !== route && !_busy) {
     destroyRewardedAd()
   }
   if (_videoAd) return _videoAd
+  if (!route) return null
 
   try {
-    _videoAd = wx.createRewardedVideoAd({ adUnitId: AD_UNIT_ID })
+    const ad = wx.createRewardedVideoAd({ adUnitId: AD_UNIT_ID })
+    if (!ad) return null
+    _videoAd = ad
     _adRoute = route
-    _videoAd.onError(function (err) {
+    _adBroken = false
+    ad.onError(function (err) {
       console.error('[ad-unlock] load/show error', err)
+      _adBroken = true
     })
-    _videoAd.onClose(function (res) {
+    ad.onClose(function (res) {
       const cb = _pendingClose
       _pendingClose = null
+      try {
+        if (typeof ad.load === 'function') ad.load()
+      } catch (e) {}
       if (typeof cb === 'function') cb(res)
     })
   } catch (e) {
     console.error('[ad-unlock] createRewardedVideoAd failed', e)
     _videoAd = null
     _adRoute = ''
+    _adBroken = false
   }
   return _videoAd
 }
@@ -166,16 +225,21 @@ function _delay(ms) {
 }
 
 /**
- * 拉起激励视频；看完则写入该 productId 的 10 分钟解锁
- * @returns {Promise<boolean>} true=已解锁，false=未看完/失败/取消
+ * 仅播放激励视频，不自动写入时间解锁；由调用方发奖
+ * @param {{ successToast?: string, failToast?: string, incompleteToast?: string, holdMs?: number, minWatchSec?: number }} [opts]
+ * @returns {Promise<boolean>} true=看完或已看满 minWatchSec
  */
-function showRewardedAdForUnlock(productId) {
-  return new Promise(function (resolve) {
-    if (!productId) {
-      resolve(false)
-      return
-    }
+function showRewardedVideoAd(opts) {
+  const options = opts && typeof opts === 'object' ? opts : {}
+  const successToast = options.successToast || ''
+  const failToast = options.failToast != null ? options.failToast : '暂无广告，请稍后再试'
+  const minWatchSec = Number(options.minWatchSec) > 0 ? Math.floor(Number(options.minWatchSec)) : 0
+  const incompleteToast = options.incompleteToast != null
+    ? options.incompleteToast
+    : (minWatchSec > 0 ? ('需观看满' + minWatchSec + '秒才能解锁') : '需看完广告才能解锁')
+  const holdMs = options.holdMs != null ? Number(options.holdMs) : UNLOCK_TOAST_HOLD_MS
 
+  return new Promise(function (resolve) {
     if (_busy || _pendingClose) {
       _safeToast('广告加载中，请稍候')
       resolve(false)
@@ -191,23 +255,82 @@ function showRewardedAdForUnlock(productId) {
 
     _busy = true
     var settled = false
+    var shownAt = 0
+    var visibleMs = 0
+    var segmentStart = 0
+    var hideHandler = null
+    var showHandler = null
+    var showWatchdog = null
 
-    function finish(ok, toastTitle, toastIcon, holdMs) {
+    function currentWatchedMs() {
+      var extra = segmentStart ? Math.max(0, Date.now() - segmentStart) : 0
+      return Math.max(0, visibleMs + extra)
+    }
+
+    function clearShowWatchdog() {
+      if (!showWatchdog) return
+      clearTimeout(showWatchdog)
+      showWatchdog = null
+    }
+
+    function markShown() {
+      if (!shownAt) shownAt = Date.now()
+      if (!segmentStart) segmentStart = Date.now()
+      clearShowWatchdog()
+    }
+
+    function pauseVisible() {
+      if (!segmentStart) return
+      visibleMs += Math.max(0, Date.now() - segmentStart)
+      segmentStart = 0
+    }
+
+    function resumeVisible() {
+      if (shownAt && !segmentStart) segmentStart = Date.now()
+    }
+
+    function bindAppVisibility() {
+      if (minWatchSec <= 0 || hideHandler) return
+      hideHandler = function () { pauseVisible() }
+      showHandler = function () { resumeVisible() }
+      try {
+        if (typeof wx.onAppHide === 'function') wx.onAppHide(hideHandler)
+      } catch (e) {}
+      try {
+        if (typeof wx.onAppShow === 'function') wx.onAppShow(showHandler)
+      } catch (e) {}
+    }
+
+    function unbindAppVisibility() {
+      if (hideHandler) {
+        try {
+          if (typeof wx.offAppHide === 'function') wx.offAppHide(hideHandler)
+        } catch (e) {}
+        hideHandler = null
+      }
+      if (showHandler) {
+        try {
+          if (typeof wx.offAppShow === 'function') wx.offAppShow(showHandler)
+        } catch (e) {}
+        showHandler = null
+      }
+    }
+
+    function finish(ok, toastTitle, toastIcon, hold) {
       if (settled) return
       settled = true
+      clearShowWatchdog()
+      unbindAppVisibility()
       _busy = false
       _pendingClose = null
       _nudgeCapsuleRestore()
-      if (ok && toastTitle && holdMs > 0) {
-        // 解锁成功：先弹提示停留够时长，再放行业务跳转（否则提示还没看清就跳到视频了）
-        // 此时距广告层收起已过 settle 期，同步 Toast 安全；且 2 秒内无 navigateTo，不存在抢帧
+      if (ok && toastTitle && hold > 0) {
         _safeToast(toastTitle, toastIcon)
         setTimeout(function () {
           resolve(true)
-        }, holdMs)
+        }, hold)
         return
       }
-      // 失败/取消不跳转：先 resolve，再 Toast，避免与全屏层收起抢同一帧
       resolve(!!ok)
       if (toastTitle) {
         setTimeout(function () {
@@ -216,61 +339,91 @@ function showRewardedAdForUnlock(productId) {
       }
     }
 
-    function finishAfterSettle(ok, toastTitle, toastIcon, holdMs) {
+    function finishAfterSettle(ok, toastTitle, toastIcon, hold) {
       _nudgeCapsuleRestore()
       setTimeout(function () {
         _nudgeCapsuleRestore()
-        finish(ok, toastTitle, toastIcon, holdMs)
-        // 关闭后销毁，下次在「当时所在页」重建，避免跨 Tab/子页复用单例
-        try {
-          destroyRewardedAd()
-        } catch (e) {}
+        finish(ok, toastTitle, toastIcon, hold)
       }, POST_CLOSE_SETTLE_MS)
     }
 
     _pendingClose = function (res) {
-      // 基础库 < 2.1.0 时 res 可能为 undefined，视为看完
-      var ended = !res || res.isEnded === true
-      if (ended) {
-        grantUnlock(productId)
-        var mins = Math.max(1, Math.round(_unlockTtlMs() / 60000))
-        // 单条视频解锁键（evtvid:）：明确提示只解锁本条，避免误以为解锁整个版块
-        var isSingleVideo = String(productId).indexOf('evtvid:') === 0
-        var title = isSingleVideo ? '本条视频已解锁 ' + mins + ' 分钟' : '已解锁 ' + mins + ' 分钟'
-        finishAfterSettle(true, title, 'success', UNLOCK_TOAST_HOLD_MS)
+      if (qualifyRewardedAdClose(res, { minWatchSec: minWatchSec, watchedMs: currentWatchedMs() })) {
+        finishAfterSettle(true, successToast, successToast ? 'success' : 'none', holdMs)
       } else {
-        finishAfterSettle(false, '需看完广告才能解锁', 'none')
+        finishAfterSettle(false, incompleteToast, 'none', 0)
       }
     }
 
     function failShow(err) {
       console.error('[ad-unlock] show failed', err)
       _pendingClose = null
-      finish(false, '暂无广告，请稍后再试', 'none')
+      _adBroken = true
+      finish(false, failToast, 'none', 0)
     }
 
-    // ActionSheet 收起后再拉全屏广告，降低叠层导致的系统栏异常
+    showWatchdog = setTimeout(function () {
+      showWatchdog = null
+      if (!shownAt && !settled) failShow(new Error('ad show timeout'))
+    }, SHOW_WATCHDOG_MS)
+
     _delay(PRE_SHOW_DELAY_MS)
       .then(function () {
         if (settled) return null
-        return ad.show()
+        return _safeAdCall(ad, 'show').then(function () {
+          if (settled) return
+          markShown()
+          bindAppVisibility()
+        })
       })
       .catch(function () {
         if (settled) return null
-        return ad.load().then(function () {
-          return ad.show()
+        return _safeAdCall(ad, 'load').then(function () {
+          if (settled) return
+          return _safeAdCall(ad, 'show').then(function () {
+            if (settled) return
+            markShown()
+            bindAppVisibility()
+          })
         })
       })
       .catch(failShow)
   })
 }
 
+/**
+ * 拉起激励视频；看完（或看满该功能要求的秒数）则写入该 productId 的解锁窗口
+ * @returns {Promise<boolean>} true=已解锁，false=未看完/失败/取消
+ */
+function showRewardedAdForUnlock(productId) {
+  if (!productId) return Promise.resolve(false)
+
+  var mins = Math.max(1, Math.round(_unlockTtlMs() / 60000))
+  var isSingleVideo = String(productId).indexOf('evtvid:') === 0
+  var title = isSingleVideo ? '本条视频已解锁 ' + mins + ' 分钟' : '已解锁 ' + mins + ' 分钟'
+  var minWatchSec = getAdMinWatchSec(productId)
+
+  return showRewardedVideoAd({
+    successToast: title,
+    incompleteToast: minWatchSec > 0 ? ('需观看满' + minWatchSec + '秒才能解锁') : '需看完广告才能解锁',
+    minWatchSec: minWatchSec,
+    holdMs: UNLOCK_TOAST_HOLD_MS
+  }).then(function (ok) {
+    if (ok) grantUnlock(productId)
+    return !!ok
+  })
+}
+
 module.exports = {
   UNLOCK_TTL_MS: DEFAULT_UNLOCK_TTL_MS,
   getUnlockTtlMs: _unlockTtlMs,
+  getAdMinWatchSec: getAdMinWatchSec,
+  getAdUnlockActionLabel: getAdUnlockActionLabel,
+  qualifyRewardedAdClose: qualifyRewardedAdClose,
   isUnlocked: isUnlocked,
   getUnlockExpireAt: getUnlockExpireAt,
   grantUnlock: grantUnlock,
+  showRewardedVideoAd: showRewardedVideoAd,
   showRewardedAdForUnlock: showRewardedAdForUnlock,
   ensureRewardedAd: ensureRewardedAd,
   destroyRewardedAd: destroyRewardedAd

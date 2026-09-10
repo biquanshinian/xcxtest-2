@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "观礼场次",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal"
+  }
+}

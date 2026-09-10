@@ -1,5 +1,5 @@
 <!-- 太空轨道数据中心系统：超科幻指挥控制台 -->
-<view class="odc-page {{themeClass}}">
+<view class="odc-page">
 
   <!-- 背景视频层（与年鉴页同款） -->
   <view class="odc-bg-video-shell" wx:if="{{odcBgVideoPlaySrc}}" aria-hidden="true">
@@ -147,11 +147,67 @@
       </view>
     </view>
 
-    <!-- 核心指标矩阵 -->
+    <!-- 飞行器追踪（SpaceX 官网同源公开遥测；可拖动 3D 地球 + 轨迹） -->
     <view class="odc-section">
       <view class="odc-section__head">
         <view class="odc-section__head-line"></view>
         <text class="odc-section__head-num">[01]</text>
+        <text class="odc-section__head-title">VEHICLE TRACKER</text>
+        <text class="odc-section__head-sub">在轨飞行器追踪</text>
+      </view>
+
+      <view class="odc-vt">
+        <!-- 飞行器切换 chips -->
+        <scroll-view scroll-x="true" class="odc-vt__chips-scroll" enhanced="true" show-scrollbar="false" wx:if="{{vtVehicles.length}}">
+          <view class="odc-vt__chips">
+            <view class="odc-vt__chip {{item.id === vtFeatured ? 'odc-vt__chip--active' : ''}}"
+                  wx:for="{{vtVehicles}}" wx:key="id"
+                  data-id="{{item.id}}" bindtap="onVtVehicleTap">
+              <text>{{item.label}}</text>
+            </view>
+          </view>
+        </scroll-view>
+
+        <!-- 遥测三行（Mission Time / Speed / Altitude，同官网 tracker） -->
+        <view class="odc-vt__telemetry">
+          <view class="odc-vt__row">
+            <text class="odc-vt__row-label">MISSION TIME</text>
+            <text class="odc-vt__row-value">{{vtMissionTime}}</text>
+          </view>
+          <view class="odc-vt__row">
+            <text class="odc-vt__row-label">SPEED</text>
+            <text class="odc-vt__row-value">{{vtSpeed}}</text>
+          </view>
+          <view class="odc-vt__row">
+            <text class="odc-vt__row-label">ALTITUDE</text>
+            <text class="odc-vt__row-value">{{vtAltitude}}</text>
+          </view>
+        </view>
+
+        <!-- 可拖动地球（catchtouchmove 防止拖球时页面跟随滚动） -->
+        <view class="odc-vt__canvas-wrap">
+          <canvas type="2d" id="vtCanvas" class="odc-vt__canvas"
+                  bindtouchstart="onVtTouchStart"
+                  catchtouchmove="onVtTouchMove"
+                  bindtouchend="onVtTouchEnd"
+                  bindtouchcancel="onVtTouchEnd"></canvas>
+          <view class="odc-vt__mode {{vtMode === 'SIMULATED' ? 'odc-vt__mode--sim' : ''}}">
+            <view class="odc-vt__mode-dot"></view>
+            <text>{{vtMode}}</text>
+          </view>
+          <view class="odc-vt__loading" wx:if="{{vtLoading}}">
+            <text>ACQUIRING SIGNAL...</text>
+          </view>
+          <text class="odc-vt__hint">拖动旋转 · 双指缩放</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 核心指标矩阵 -->
+    <view class="odc-section">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[02]</text>
         <text class="odc-section__head-title">CORE METRICS</text>
         <text class="odc-section__head-sub">核心指标矩阵</text>
       </view>
@@ -176,7 +232,7 @@
     <view class="odc-section">
       <view class="odc-section__head">
         <view class="odc-section__head-line"></view>
-        <text class="odc-section__head-num">[02]</text>
+        <text class="odc-section__head-num">[03]</text>
         <text class="odc-section__head-title">ORBITAL NODES</text>
         <text class="odc-section__head-sub">在轨节点 · 实时遥测</text>
       </view>
@@ -215,7 +271,7 @@
     <view class="odc-section">
       <view class="odc-section__head">
         <view class="odc-section__head-line"></view>
-        <text class="odc-section__head-num">[03]</text>
+        <text class="odc-section__head-num">[04]</text>
         <text class="odc-section__head-title">DATA TELEMETRY</text>
         <text class="odc-section__head-sub">遥测数据流</text>
       </view>
@@ -244,7 +300,7 @@
     <view class="odc-section">
       <view class="odc-section__head">
         <view class="odc-section__head-line"></view>
-        <text class="odc-section__head-num">[04]</text>
+        <text class="odc-section__head-num">[05]</text>
         <text class="odc-section__head-title">MISSION TIMELINE</text>
         <text class="odc-section__head-sub">超前部署任务清单</text>
       </view>
@@ -273,7 +329,7 @@
     <view class="odc-section odc-section--brief">
       <view class="odc-section__head">
         <view class="odc-section__head-line"></view>
-        <text class="odc-section__head-num">[05]</text>
+        <text class="odc-section__head-num">[06]</text>
         <text class="odc-section__head-title">PROJECT BRIEF</text>
         <text class="odc-section__head-sub">项目简报</text>
       </view>

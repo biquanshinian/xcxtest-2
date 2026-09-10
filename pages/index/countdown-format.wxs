@@ -1,0 +1,27 @@
+/**
+ * 倒计时数字格式化（WXS）：在渲染层补零，不占 setData 字段。
+ *
+ * 补零策略与列表卡片 buildMissionCardCountdownFields 对齐：时/分/秒两位补零，
+ * 天保留原样。此前主卡时/分是裸数字、吸顶条时分秒全裸（会渲染出 "3天5:7:9"），
+ * 补零口径统一到这里，避免三处各写一套。
+ */
+
+function pad2(value) {
+  var n = (value === null || value === undefined || value === '') ? 0 : value
+  var s = '' + n
+  if (s.length >= 2) return s
+  return '0' + s
+}
+
+/** 吸顶精简条时钟：X天HH:MM:SS（无天数时省略「天」段） */
+function compactClock(days, hours, minutes, seconds) {
+  var d = (days === null || days === undefined || days === '') ? 0 : days
+  var clock = pad2(hours) + ':' + pad2(minutes) + ':' + pad2(seconds)
+  if (d > 0) return d + '天' + clock
+  return clock
+}
+
+module.exports = {
+  pad2: pad2,
+  compactClock: compactClock
+}

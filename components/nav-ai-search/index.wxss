@@ -1,0 +1,47 @@
+.nav-search-btn {
+  /* 样式隔离下 page / .theme-light 变量进不来，深浅色直接写在组件根上 */
+  --color-text-primary: #F5F5F7;
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --shadow-card: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
+  position: absolute;
+  left: 30rpx;
+  top: 12rpx;
+  width: 74rpx;
+  height: 54rpx;
+  background: rgba(18, 20, 24, 0.16);
+  backdrop-filter: blur(34rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(34rpx) saturate(170%);
+  border: 1px solid var(--color-divider);
+  border-radius: 999rpx;
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
+  padding: 0;
+  z-index: 2;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.nav-search-btn--light {
+  --color-text-primary: #1C1C1E;
+  --color-divider: rgba(0, 0, 0, 0.07);
+  --shadow-card: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: var(--shadow-card);
+}
+
+.icon-search--nav {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 51rpx;
+  line-height: 1;
+  color: var(--color-text-primary);
+  transform: translate(-50%, -55%) scaleX(-1);
+}
+
+.nav-search-btn--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}

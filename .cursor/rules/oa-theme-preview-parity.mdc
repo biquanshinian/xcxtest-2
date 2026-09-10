@@ -1,0 +1,24 @@
+---
+description: 公众号内容中台：主题无缝切换，预览与推送微信草稿排版必须一致
+globs: admin-web/src/views/Oa*.vue,admin-web/src/api/client.js,cloudfunctions/adminGateway/oaContent*.js,cloudfunctions/adminGateway/oaContentThemes.js
+alwaysApply: false
+---
+
+# 公众号主题预览与推送对齐
+
+## 无缝切主题（对标 xiaohu gallery.html）
+
+- 切主题必须是**瞬时显示切换**（预渲染多份 HTML，`v-show` / `display` 切换），禁止「点主题 → 等接口 → 整页闪一下」。
+- Markdown 变更后可批量预渲染全部主题；主题芯片只改当前可见主题，不重新请求。
+- 参考：`wechat-format/.../gallery.html` 的 `switchTheme`（隐藏全部 `.theme-preview`，再显示目标）。
+
+## 预览 ≡ 推送
+
+- 后台「微信」预览 HTML 与「推微信草稿」正文必须走**同一套排版管线**：`prepareMarkdownForTheme` → `markdownToWechatHtml` → `wrapThemeArticle`（及同一图片包裹 / lead/CTA 策略）。
+- 禁止预览专用装饰（如仅预览的 accent 顶色条）；无 `#` 时用草稿 `title` 补一级标题，预览与推送都要补。
+- `#` 标题用主题 `h1`，`##` 用 `h2`，与 xiaohu-wechat-format 主题 JSON 一致。
+- 冒烟：`node scripts/_tmp_audit_oa_theme_preview_parity.js`
+
+## 改主题表
+
+- 主题样式以 `xiaohu-wechat-format/themes/*.json` 为准，用 `scripts/_gen_oa_content_themes.py` 生成 `oaContentThemes.js`，不要手改生成文件当长期源。

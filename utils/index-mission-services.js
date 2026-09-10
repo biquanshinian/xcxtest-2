@@ -1,28 +1,46 @@
 const { attachMissionDetailMeta } = require('./index-mission-nav.js')
+const { formatMissionListTimeOrUnknown, applyContentLangToMission } = require('./launch-card-i18n.js')
 
 function normalizeMissionType(type) {
   return type === 'completed' ? 'completed' : 'upcoming'
 }
 
+/**
+ * 列表 wx:key 必须跟 id 走，不能带下标。
+ * 带 index 时，详情回写 / 结算补插会改序，整表拆掉重建，出现空卡再回填。
+ */
+function stableMissionListWxkey(type, mission, fallbackKey) {
+  if (fallbackKey) return fallbackKey
+  const id = mission && mission.id != null ? String(mission.id) : ''
+  const prefix = type === 'completed' ? 'm-1' : 'm-0'
+  return id ? `${prefix}-${id}` : `${prefix}-x`
+}
+
+/** 历史卡已在列表且不必从即将发射挪走 / 卸倒计时面板：只补这一张，禁止整表投影 */
+function shouldPatchSingleCompletedCardFromDetail(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (!opts.inCompleted) return false
+  if (opts.inUpcoming && opts.settled) return false
+  if (opts.isPanel && opts.settled) return false
+  return true
+}
+
 function normalizeMissionItem(mission, options) {
   const {
-    type,
-    index = 0,
-    baseIndex = 0,
-    formatDate
+    type
   } = options || {}
 
   const normalizedType = normalizeMissionType(type)
-  const isCompleted = normalizedType === 'completed'
 
-  return attachMissionDetailMeta({
+  const next = attachMissionDetailMeta({
     ...mission,
-    _wxkey: `${isCompleted ? 'm-1' : 'm-0'}-${baseIndex + index}-${(mission.id != null ? mission.id : '')}`,
-    formattedTime: mission.launchTime ? formatDate(mission.launchTime, 'MM月DD日 HH:mm') : '时间未知'
+    _wxkey: stableMissionListWxkey(normalizedType, mission, mission && mission._wxkey),
+    formattedTime: formatMissionListTimeOrUnknown(mission.launchTime)
   }, {
     id: mission.id,
     detailType: normalizedType
   })
+  return applyContentLangToMission(next)
 }
 
 async function fetchMissionListData(options) {
@@ -101,14 +119,22 @@ function mergeMissionPages(type, currentList, incomingList, filterExpiredMission
     })
   }
 
+  // 缺失/非法 launchTime 沉底：与 sortUpcomingMissionsByNetAsc、云端探针排序
+  // （net-patch-policy.sortResultsByNetAsc）同口径。若按 0 排会顶到列表最前，
+  // 首屏与 live patch 重排后同一任务位置对调
   return filterExpiredMissions(merged.sort((a, b) => {
-    const timeA = a && a.launchTime ? new Date(a.launchTime).getTime() : 0
-    const timeB = b && b.launchTime ? new Date(b.launchTime).getTime() : 0
-    return timeA - timeB
+    const ta = a && a.launchTime ? new Date(a.launchTime).getTime() : NaN
+    const tb = b && b.launchTime ? new Date(b.launchTime).getTime() : NaN
+    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
+    return va - vb
   }))
 }
 
 module.exports = {
+  normalizeMissionItem,
+  stableMissionListWxkey,
+  shouldPatchSingleCompletedCardFromDetail,
   fetchMissionListData,
   buildMissionListSetData,
   getMissionNextOffset,

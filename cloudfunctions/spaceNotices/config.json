@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 90,
+  "triggers": [
+    {
+      "name": "spaceNoticesSyncTimer",
+      "type": "timer",
+      "config": "0 */15 * * * * *"
+    }
+  ],
+  "environment": [
+    {
+      "key": "SPACE_NOTICES_INGEST_SECRET",
+      "value": "FILL_ME"
+    }
+  ]
+}

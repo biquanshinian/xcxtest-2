@@ -1,0 +1,6 @@
+/* 布局与配色沿用监控页 apply-shared 的 .starbase-weather-* */
+/* 不要 width:100%：根节点同时还吃页面的 section-title-right，
+   在「直播观看」标题行里会把左侧标题挤出 flex 行。 */
+.starbase-weather-cluster {
+  min-width: 0;
+}

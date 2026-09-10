@@ -4,7 +4,7 @@
   "description": "自动同步 SpaceX 官方推文到星舰事件更新",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "~2.6.3",
+    "wx-server-sdk": "~4.0.2",
     "cos-nodejs-sdk-v5": "^2.14.6"
   }
 }

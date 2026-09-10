@@ -98,8 +98,9 @@ function resolvePageRouteOptions(rawOptions) {
 
 function resolveNewsDetailRoute(rawOptions) {
   const opts = resolvePageRouteOptions(rawOptions)
-  const detailType = opts.type === 'article' ? 'article' : 'event'
   const id = opts.id ? String(opts.id).trim() : ''
+  const detailType =
+    opts.type === 'article' || id.startsWith('manual_') ? 'article' : 'event'
   return { detailType, id, options: opts }
 }
 
@@ -108,7 +109,8 @@ function resolveMissionDetailRoute(rawOptions) {
   const detailType = opts.type === 'completed' ? 'completed' : 'upcoming'
   const id = opts.id ? String(opts.id).trim() : ''
   const fromSearch = String(opts.fromSearch || '') === '1'
-  return { detailType, id, fromSearch, options: opts }
+  const entryKey = opts.entryKey ? String(opts.entryKey).trim() : ''
+  return { detailType, id, fromSearch, entryKey, options: opts }
 }
 
 module.exports = {

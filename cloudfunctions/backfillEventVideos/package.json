@@ -1,0 +1,10 @@
+{
+  "name": "backfillEventVideos",
+  "version": "1.0.0",
+  "description": "回填事件长视频到 COS 并生成压缩预览（syncSpaceXTweets 60s 超时装不下大视频下载）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~4.0.2",
+    "cos-nodejs-sdk-v5": "^2.14.6"
+  }
+}

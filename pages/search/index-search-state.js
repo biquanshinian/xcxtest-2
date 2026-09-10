@@ -165,10 +165,10 @@ function buildSearchAppliedState(params = {}) {
     searchLoading: false,
     searchSuggestions,
     searchSummary: params.summaryText || DEFAULT_SEARCH_SUMMARY,
-    searchResultCountText: flatResults.length ? `找到 ${flatResults.length} 个相关任务` : '',
+    searchResultCountText: flatResults.length ? `找到 ${flatResults.length} 个相关结果` : '',
     searchSuggestedKeyword: !flatResults.length && searchSuggestions.length ? searchSuggestions[0] : '',
     searchEmptyHint: !flatResults.length
-      ? (keyword.length <= 2 ? '试试更完整的火箭名、任务名或发射场关键字' : '没有直接命中，换个别名或更短关键词试试')
+      ? (keyword.length <= 2 ? '试试更完整的火箭名、型号、任务名或发射场关键字' : '没有直接命中，换个别名或更短关键词试试')
       : '',
     searchContextLabel: keyword ? `搜索：${keyword}` : '',
     searchScrollTop: 0

@@ -166,13 +166,13 @@
   margin-top: 8rpx;
   padding: 14rpx 48rpx;
   border-radius: 40rpx;
-  background: #00ff88;
+  background: var(--color-brand);
 }
 
 .ar-fallback-retry text {
   font-size: 26rpx;
   font-weight: 500;
-  color: #000;
+  color: #fff;
 }
 
 /* AR 诊断面板 */
@@ -320,7 +320,7 @@
 }
 
 .info-value-best {
-  color: #00ff88;
+  color: var(--color-brand);
 }
 
 .best-dir {
@@ -377,14 +377,13 @@
   background: rgba(30, 30, 36, 0.95);
   border-radius: 24rpx;
   overflow: hidden;
-  box-shadow: 0 8rpx 40rpx rgba(0, 0, 0, 0.5);
 }
 
 .capture-preview-img {
   width: 100%;
   height: 56vw;
   display: block;
-  background: #000;
+  background: #0B0C0E;
 }
 
 .capture-actions {
@@ -405,8 +404,8 @@
 }
 
 .capture-btn-save {
-  background: #00ff88;
-  color: #000;
+  background: var(--color-brand);
+  color: #fff;
 }
 
 .capture-btn-close {
@@ -453,8 +452,8 @@
 }
 
 .sat-dot-sunlit {
-  background: #00ff88;
-  box-shadow: 0 0 8rpx rgba(0, 255, 136, 0.6);
+  background: var(--color-brand);
+  box-shadow: 0 0 8rpx rgba(59, 130, 246, 0.6);
 }
 
 .sat-dot-dim {
@@ -498,7 +497,7 @@
 }
 
 .sat-val-sunlit {
-  color: #00ff88;
+  color: var(--color-brand);
 }
 
 /* 光照状态图标 */

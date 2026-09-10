@@ -17,7 +17,7 @@
 
     <view class="pass-detail-body">
       <!-- 概览 -->
-      <view class="pass-hero glass-card">
+      <view class="pass-hero glass-card" wx:if="{{!momentsHint && !shareLandingEmpty}}">
         <view class="pass-hero-head">
           <view class="pass-hero-badge">
             <text class="pass-hero-badge-dot"></text>
@@ -106,7 +106,18 @@
         </view>
       </view>
 
-      <!-- 空态 -->
+      <!-- 朋友圈单页 / 分享冷启动无本地数据 -->
+      <view class="pass-empty-block glass-card" wx:elif="{{momentsHint || shareLandingEmpty}}">
+        <text class="pass-empty-title" wx:if="{{sharePreviewCount}}">分享提及未来 24 小时约 {{sharePreviewCount}} 次可见过境</text>
+        <text class="pass-empty-title" wx:else>星链过境预报</text>
+        <text class="pass-empty-desc" wx:if="{{momentsHint}}">过境与观测位置相关。请点击「前往小程序」，在监控中心按你的位置加载预报。</text>
+        <text class="pass-empty-desc" wx:else>过境与观测位置相关，请到监控中心按你的位置加载预报。</text>
+        <view class="pass-empty-action" wx:if="{{!momentsHint}}" bindtap="goMonitorForPasses">
+          <text>打开监控中心</text>
+        </view>
+      </view>
+
+      <!-- 空态：本地确无过境 -->
       <view class="pass-empty-block glass-card" wx:else>
         <text class="pass-empty-title">未来 24 小时暂无可见过境</text>
         <text class="pass-empty-desc">可能当前时段天空过亮，或卫星未处于可被阳光照亮的轨道位置。可返回监控页刷新后再试。</text>
@@ -128,4 +139,6 @@
       <view style="height: 48rpx;"></view>
     </view>
   </scroll-view>
+
+  <share-guide />
 </view>

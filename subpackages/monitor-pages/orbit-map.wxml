@@ -1,20 +1,29 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="map-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav">
-      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
-      <text class="nav-title">{{stationName}} 轨道追踪</text>
-      <view class="nav-placeholder"></view>
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{stationName}} 轨道追踪</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
-      <view class="map-action-header">
-        <text class="map-action-title">地图工具</text>
-        <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+  </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
       </view>
-      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
-        <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
-        <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
-        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
-      </view>
+      <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
+      <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
+      <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
     </view>
   </view>
 
@@ -31,8 +40,30 @@
     enable-rotate="false"
     enable-overlooking="false"
     show-compass="true"
-    layer-style="1"
-  ></map>
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
+  >
+    <!-- 自定义 HUD 气泡：替代原生 callout 的白底黑字 -->
+    <cover-view slot="callout">
+      <cover-view marker-id="1" class="station-hud">
+        <cover-view class="station-hud-top">
+          <cover-view class="station-hud-live-dot"></cover-view>
+          <cover-view class="station-hud-live">LIVE · TRACK</cover-view>
+        </cover-view>
+        <cover-view class="station-hud-title">{{stationName}}</cover-view>
+        <cover-view class="station-hud-divider"></cover-view>
+        <cover-view class="station-hud-row">
+          <cover-view class="station-hud-k">ALT</cover-view>
+          <cover-view class="station-hud-v">{{stationAlt}}</cover-view>
+        </cover-view>
+        <cover-view class="station-hud-row">
+          <cover-view class="station-hud-k">VEL</cover-view>
+          <cover-view class="station-hud-v">{{stationSpeed}}</cover-view>
+        </cover-view>
+        <cover-view class="station-hud-coord">{{stationCoord}}</cover-view>
+      </cover-view>
+    </cover-view>
+  </map>
 
   <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
     <view class="panel-header panel-header--with-action">
@@ -99,7 +130,7 @@
     </block>
 
     <view class="mini-summary-row" wx:else>
-      <text class="mini-summary-text">{{stationAlt}} · {{stationSpeed}} · {{stationCoord}}</text>
+      <text class="mini-summary-text">高度 {{stationAlt}} · 速度 {{stationSpeed}} · 坐标 {{stationCoord}}</text>
     </view>
   </view>
 </view>

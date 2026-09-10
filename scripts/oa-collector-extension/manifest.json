@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "火星探索日志 · 公众号采集",
+  "version": "1.1.0",
+  "description": "采集单篇或对标号历史消息最新 5 篇，入库内容中台",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://mp.weixin.qq.com/*",
+    "https://*.tcloudbase.com/*",
+    "http://localhost:*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "采集到火星探索日志"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mp.weixin.qq.com/s*",
+        "https://mp.weixin.qq.com/s?*",
+        "https://mp.weixin.qq.com/mp/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

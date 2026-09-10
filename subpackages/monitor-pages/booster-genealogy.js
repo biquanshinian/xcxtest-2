@@ -5,16 +5,26 @@
  */
 const pageBase = require('../../utils/page-base.js')
 const { getBoosterGenealogy, getRocketConfigMeta } = require('../../utils/api-app-services.js')
-const boosterDisplay = require('../../utils/booster-display.js')
+const boosterDisplay = require('./utils/booster-display.js')
+const gallerySearch = require('./utils/gallery-search.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
+const { openBoosterEntityDetail, openRocketCompare, openEncyclopediaAgency } = require('./utils/booster-nav.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const {
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload,
+  rocketShareOptsFromModel
+} = require('./utils/rocket-model-share-image.js')
+const { ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部状态' },
   { id: 'active', label: '现役' },
   { id: 'retired', label: '退役' },
-  { id: 'destroyed', label: '损毁' }
+  { id: 'destroyed', label: '损毁' },
+  { id: 'expended', label: '已消耗' }
 ]
 
 const SORT_OPTIONS = [
@@ -28,6 +38,9 @@ Page({
   data: {
     loading: true,
     loadError: false,
+    errorMessage: '',
+    shareGateExpireAt: 0,
+    shareImage: '',
     navTitle: '全球可回收火箭族谱',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
@@ -37,6 +50,7 @@ Page({
 
     filterChips: [],
     filter: 'all',
+    keyword: '',
     statusFilters: STATUS_FILTERS,
     statusFilter: 'all',
     sortOptions: SORT_OPTIONS,
@@ -45,8 +59,7 @@ Page({
     modelCards: [],
     boosterCards: [],
     stats: { activeCount: 0, maxFlights: 0, totalFlights: 0, manufacturerCount: 0 },
-    filterEmpty: false,
-    imageLoadedMap: {}
+    filterEmpty: false
   },
 
   onLoad(options) {
@@ -55,15 +68,47 @@ Page({
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     if (/^[A-Za-z]{2}$/.test(filter)) filter = 'country:' + filter.toUpperCase()
     this._pendingFilter = filter
-    this.loadData()
+    this._entryOptions = options || {}
+    this.ensureCatalogAccess(this._entryOptions).then((allowed) => {
+      if (allowed) this.loadData()
+    })
+  },
+
+  async ensureCatalogAccess(options) {
+    var shareAllowed = await checkShareEntryGate(this, options, 'booster_genealogy', '全球可回收火箭族谱')
+    if (!shareAllowed) {
+      this._catalogAllowed = false
+      this.setData({
+        loading: false,
+        loadError: true,
+        errorMessage: '分享链接已过期，开通星际通行证后可继续查看'
+      })
+      return false
+    }
+    warmShareEntitlement(this, 'booster_genealogy')
+    if (!this.data.shareGateExpireAt) {
+      var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+      if (!allowed) {
+        this._catalogAllowed = false
+        this.setData({
+          loading: false,
+          loadError: true,
+          errorMessage: '开通星际通行证后可查看族谱'
+        })
+        return false
+      }
+    }
+    this._catalogAllowed = true
+    return true
   },
 
   async loadData(options) {
+    if (!this._catalogAllowed) return
     // silent：下拉刷新时不显示整页骨架（避免 scroll-view 被 wx:if 卸载打断回弹）
     var silent = !!(options && options.silent)
-    this.setData(silent ? { loadError: false } : { loading: true, loadError: false })
+    this.setData(silent ? { loadError: false } : { loading: true, loadError: false, errorMessage: '' })
     try {
-      var results = await Promise.all([getBoosterGenealogy(), getRocketConfigMeta()])
+      var results = await Promise.all([getBoosterGenealogy(), getRocketConfigMeta({ afterGate: true })])
       var list = results[0] || []
       var configMeta = results[1] || { configs: {} }
 
@@ -71,19 +116,30 @@ Page({
       var processed = boosterDisplay.processBoosterList(list, configMeta.configs)
       this._allBoosters = processed.processed
       this._rawBySerial = processed.rawBySerial
-      this._allModels = boosterDisplay.buildModelCards(configMeta.configs)
+      this._allModels = boosterDisplay.buildModelCards(configMeta.configs).filter(function (m) {
+        return m.reusable === true
+      })
 
-      // chip 由箭实体 + 型号两侧数据合并生成（未首飞型号也能出现在筛选里）
+      // chip 由箭实体 + 型号两侧数据合并；控制数量，单排横滑
       var chipSource = this._allBoosters.concat(this._allModels.map(function (m) {
-        return { countryCode: m.countryCode, manufacturer: m.manufacturer }
+        return {
+          countryCode: m.countryCode,
+          manufacturer: m.manufacturer,
+          manufacturerDisplay: m.manufacturerDisplay,
+          reusable: m.reusable
+        }
       }))
-      var chips = boosterDisplay.buildBoosterFilterChips(chipSource, { maxManufacturerChips: 10 })
+      var chips = boosterDisplay.buildBoosterFilterChips(chipSource, { maxManufacturerChips: 5 })
 
       var filter = this._pendingFilter || 'all'
-      var chipIds = chips.map(function (c) { return c.id })
-      if (chipIds.indexOf(filter) === -1) filter = 'all'
+      if (!gallerySearch.isKnownGenealogyFilter(filter)) filter = 'all'
+      chips = gallerySearch.ensureActiveChip(
+        chips,
+        filter,
+        boosterDisplay.extraChipForFilter(filter, (this._allBoosters || []).concat(this._allModels || []))
+      )
+      this._filterChips = chips
 
-      this.setData({ loading: false, filterChips: chips })
       this.applyFilters({ filter: filter })
     } catch (err) {
       console.error('[Genealogy] load error:', err)
@@ -91,42 +147,88 @@ Page({
     }
   },
 
-  /** 统一应用 国家厂商筛选 + 状态筛选 + 排序 */
+  /** 统一应用 国家厂商/可复用筛选 + 关键词 + 状态筛选 + 排序（可复用始终置顶） */
   applyFilters(patch) {
-    var filter = (patch && patch.filter) || this.data.filter
-    var statusFilter = (patch && patch.statusFilter) || this.data.statusFilter
-    var sortBy = (patch && patch.sortBy) || this.data.sortBy
+    var filter = gallerySearch.pickPatchValue(patch, 'filter', this.data.filter) || 'all'
+    var statusFilter = gallerySearch.pickPatchValue(patch, 'statusFilter', this.data.statusFilter) || 'all'
+    var sortBy = gallerySearch.pickPatchValue(patch, 'sortBy', this.data.sortBy) || 'flights'
+    var keyword = gallerySearch.pickPatchValue(patch, 'keyword', this.data.keyword)
 
     var boosters = boosterDisplay.applyBoosterFilter(this._allBoosters || [], filter)
     if (statusFilter !== 'all') {
       boosters = boosters.filter(function (b) { return b.status === statusFilter })
     }
-    if (sortBy === 'recent') {
-      boosters.sort(function (a, b) {
-        return new Date(b.lastFlight || 0).getTime() - new Date(a.lastFlight || 0).getTime()
-      })
-    } else {
-      boosters.sort(function (a, b) { return b.flights - a.flights })
-    }
+    boosters = gallerySearch.filterCardsByKeyword(boosters, keyword)
+    boosters = gallerySearch.sortByFlightsOrRecent(boosters, sortBy, 'flights', 'lastFlight')
 
     var models = boosterDisplay.applyModelFilter(this._allModels || [], filter)
+    // 现役/退役/损毁/已消耗只作用于箭实体；型号区同步隐藏，避免筛选看起来没生效
+    if (statusFilter !== 'all') models = []
+    else {
+      models = gallerySearch.filterCardsByKeyword(models, keyword)
+      models = gallerySearch.sortByFlightsOrRecent(models, sortBy, 'totalLaunchCount', 'maidenFlight')
+    }
+
+    var chips = gallerySearch.ensureActiveChip(
+      this._filterChips || this.data.filterChips || [],
+      filter,
+      boosterDisplay.extraChipForFilter(filter, (this._allBoosters || []).concat(this._allModels || []))
+    )
 
     this.setData({
+      loading: false,
       filter: filter,
       statusFilter: statusFilter,
       sortBy: sortBy,
+      keyword: keyword == null ? '' : String(keyword),
       modelCards: models,
       boosterCards: boosters,
       stats: boosterDisplay.computeBoosterStats(boosters),
       filterEmpty: boosters.length === 0 && models.length === 0,
-      imageLoadedMap: {}
+      filterChips: chips
     })
+    this._syncShareImage(models[0] || boosters[0])
+  },
+
+  _syncShareImage(card) {
+    const opts = rocketShareOptsFromModel(card)
+    const url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickRocketModelShareSourceForDownload(opts))
+  },
+
+  _buildShareImage() {
+    const card = (this.data.modelCards && this.data.modelCards[0]) || (this.data.boosterCards && this.data.boosterCards[0])
+    return pageShareImage(this) || pickRocketModelShareImageUrl(rocketShareOptsFromModel(card))
   },
 
   onFilterTap(e) {
     var id = e.currentTarget.dataset.filter
     if (!id || id === this.data.filter) return
     this.applyFilters({ filter: id })
+  },
+
+  onSearchInput(e) {
+    var value = (e.detail && e.detail.value) || ''
+    this.setData({ keyword: value })
+    if (this._searchTimer) clearTimeout(this._searchTimer)
+    var self = this
+    this._searchTimer = setTimeout(function () {
+      self._searchTimer = null
+      self.applyFilters({ keyword: value })
+    }, 200)
+  },
+
+  onSearchClear() {
+    if (!this.data.keyword) return
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
+    var self = this
+    this.setData({ keyword: '' }, function () {
+      self.applyFilters({ keyword: '' })
+    })
   },
 
   onStatusFilterTap(e) {
@@ -136,9 +238,14 @@ Page({
   },
 
   onSortTap(e) {
-    var id = e.currentTarget.dataset.sort
+    var id = e.currentTarget.dataset.sortBy
     if (!id || id === this.data.sortBy) return
     this.applyFilters({ sortBy: id })
+  },
+
+  onTapRocketCompare() {
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketCompare()
   },
 
   async onModelCardTap(e) {
@@ -150,48 +257,55 @@ Page({
     navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId: configId })
   },
 
-  async onBoosterCardTap(e) {
-    var serial = e.currentTarget.dataset.serial
-    if (!serial) return
-    var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
-    var raw = (this._rawBySerial && this._rawBySerial[serial]) || null
-    if (raw) {
-      var app = getApp && getApp()
-      if (app) app._boosterDetailData = raw
+  async onTapModelManufacturer(e) {
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var id = ds.id || ds.agencyId || ''
+    if (!id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
     }
-    navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    return openEncyclopediaAgency({ agencyId: id })
   },
 
-  onImageLoad(e) {
-    var key = e.currentTarget.dataset.imgKey
-    if (!key) return
-    this.setData(this._buildKV('imageLoadedMap.' + key, true))
+  async onBoosterCardTap(e) {
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var serial = ds.serial
+    var launcherId = ds.launcherId
+    var list = this.data.boosterCards || []
+    var card = list.find(function (b) {
+      return b && ((serial && String(b.serial) === String(serial)) ||
+        (launcherId && String(b.launcherId || '') === String(launcherId)))
+    })
+    var raw = (serial && this._rawBySerial && this._rawBySerial[serial]) ||
+      (card && card.serial && this._rawBySerial && this._rawBySerial[card.serial]) || null
+    if (!serial && !launcherId && !(card && card.launcherId) && !(raw && raw.ll2Id)) return
+    await openBoosterEntityDetail(serial, {
+      raw: raw,
+      ll2Id: launcherId || (card && card.launcherId) || (raw && raw.ll2Id) || '',
+      heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
+    })
   },
 
-  /** 图片加载失败：沿多级兜底链逐级切换；链耗尽则清空 URL 显示渐变占位 */
   onImageError(e) {
-    var key = e.currentTarget.dataset.imgKey
-    if (!key) return
-    var isModel = key.charAt(0) === 'm'
-    var idx = parseInt(key.slice(1), 10)
-    var listKey = isModel ? 'modelCards' : 'boosterCards'
-    var card = (this.data[listKey] || [])[idx]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
+    var id = e.currentTarget.dataset.id
+    var kind = e.currentTarget.dataset.kind
+    var listKey = kind === 'model' ? 'modelCards' : 'boosterCards'
+    var idField = kind === 'model' ? 'configId' : 'serial'
+    var idx = gallerySearch.findCardIndexByKey(this.data[listKey], idField, id)
+    if (idx < 0) return
+    var card = this.data[listKey][idx]
+    if (!gallerySearch.advanceCardImage(card)) return
     var kv = {}
-    kv[listKey + '[' + idx + '].thumbnailUrl'] = fallbacks[0] || ''
-    kv[listKey + '[' + idx + '].imageFallbacks'] = fallbacks.slice(1)
+    kv[listKey + '[' + idx + '].thumbnailUrl'] = card.thumbnailUrl
+    kv[listKey + '[' + idx + '].imageUrl'] = card.imageUrl
+    kv[listKey + '[' + idx + '].imageFallbacks'] = card.imageFallbacks
     this.setData(kv)
   },
 
-  _buildKV(key, value) {
-    var kv = {}
-    kv[key] = value
-    return kv
-  },
-
-  onRetryLoad() {
+  async onRetryLoad() {
+    var allowed = await this.ensureCatalogAccess(this._entryOptions || {})
+    if (!allowed) return
     this.loadData()
   },
 
@@ -204,6 +318,13 @@ Page({
     runPullRefresh(this, () => this.loadData({ silent: true }))
   },
 
+  onUnload() {
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
+  },
+
   _sharePath() {
     var path = '/subpackages/monitor-pages/booster-genealogy'
     if (this.data.filter && this.data.filter !== 'all') {
@@ -214,6 +335,8 @@ Page({
 
   _shareTitle() {
     if (this.data.filter === 'country:CN') return '中国可回收火箭族谱 | 火星探索日志'
+    if (this.data.filter === 'reusable') return '可复用火箭族谱 | 火星探索日志'
+    if (this.data.filter === 'expendable') return '一次性火箭族谱 | 火星探索日志'
     if (this.data.filter && this.data.filter.indexOf('mfr:') === 0) {
       return this.data.filter.slice(4) + ' 可回收火箭族谱 | 火星探索日志'
     }
@@ -221,7 +344,11 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: this._shareTitle(), path: this._sharePath() }
+    return {
+      title: this._shareTitle(),
+      path: withShareStampPath(this._sharePath(), this),
+      imageUrl: this._buildShareImage()
+    }
   },
 
   onShareTimeline() {
@@ -229,6 +356,10 @@ Page({
     if (this.data.filter && this.data.filter !== 'all') {
       query = 'filter=' + encodeURIComponent(this.data.filter)
     }
-    return { title: this._shareTitle(), query: query }
+    return {
+      title: this._shareTitle(),
+      query: withShareStampQuery(query, this),
+      imageUrl: this._buildShareImage()
+    }
   }
 })

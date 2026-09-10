@@ -1,4 +1,7 @@
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
+const { fetchRecentSettledLaunches, getRocketConfigMeta } = require('../../utils/api-app-services.js')
+const { mergeRecentSettledIntoCompletedList } = require('./recent-settled-list-merge.js')
+const { onLaunchListStale } = require('../../utils/api-request.js')
 const { getAgencies } = require('../../utils/api-monitor-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const {
@@ -14,6 +17,7 @@ const {
   mergeMissionPages
 } = require('../../utils/index-mission-services.js')
 const { analyzeSearchQuery, getDefaultSearchSuggestions } = require('./aiSearch.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pickShareImageUrl, pageShareImage } = require('../../utils/share-thumb.js')
 const {
   loadSearchHistory,
   persistSearchHistory,
@@ -27,7 +31,14 @@ const {
   upsertSearchCache,
   getSearchDisplaySummary
 } = require('./index-search-state.js')
-const { buildSearchResults: buildMissionSearchResults, buildSearchPrefetchPlan } = require('./index-search-engine.js')
+const {
+  buildSearchResults: buildMissionSearchResults,
+  buildSearchPrefetchPlan,
+  collectRocketModelsFromMissions,
+  collectRocketModelsFromConfigs,
+  mergeRocketModels
+} = require('./index-search-engine.js')
+const { cleanConfigId } = require('../../utils/rocket-config-match.js')
 const {
   resolveMissionDetailSourceData,
   buildMissionDetailNavigation,
@@ -39,7 +50,7 @@ const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config
 const { buildMissionReadyState, buildMissionCardHapticState } = require('../../utils/index-mission-state.js')
 const pageBase = require('../../utils/page-base.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
-const { isProSync } = require('../../utils/membership.js')
+const { isProSync, gateCheck } = require('../../utils/membership.js')
 
 const SEARCH_HISTORY_KEY = 'index_search_history_v2'
 const SEARCH_HISTORY_LIMIT = 8
@@ -79,6 +90,7 @@ Page({
     menuButtonWidth: 88,
     /** 与首页开屏一致，用于朋友圈分享配图（避免误用火箭配置图） */
     splashShareImageUrl: '',
+    shareImage: SHARE_THUMB_FALLBACK,
     /** AI 智能回答 */
     aiAnswerLoading: false,
     aiAnswer: '',
@@ -89,11 +101,20 @@ Page({
     this._pendingQuery = (options && (options.q || options.keyword)) ? String(options.q || options.keyword).trim() : ''
 
     this.initUiShell()
+    bootPageShareThumb(this)
 
     this.setData({ isProUser: isProSync() })
 
     void loadCloudMediaMap().catch(() => {})
     void this.loadSplashShareImageForTimeline()
+
+    this._offLaunchListStale = onLaunchListStale((info) => {
+      if (!info || (info.kind !== 'previous' && info.kind !== 'upcoming')) return
+      const now = Date.now()
+      if (this._launchListStaleAt && now - this._launchListStaleAt < 1500) return
+      this._launchListStaleAt = now
+      this.ensureMissionListsReady(['upcoming', 'completed']).catch(() => {})
+    })
 
     const searchHistory = loadSearchHistory(SEARCH_HISTORY_KEY, SEARCH_HISTORY_LIMIT)
     this._searchResultCache = Object.create(null)
@@ -125,6 +146,12 @@ Page({
   // goBack inherited from pageBase,
 
   onUnload() {
+    if (typeof this._offLaunchListStale === 'function') {
+      try {
+        this._offLaunchListStale()
+      } catch (e) {}
+      this._offLaunchListStale = null
+    }
     this._clearSearchTimers()
   },
 
@@ -198,7 +225,18 @@ Page({
           nextState.missionsHasMore = !!res.hasMore
         }
       }).catch(() => {})
-    })).then(() => nextState)
+    })).then(async () => {
+      if (Array.isArray(nextState.completedMissions)) {
+        try {
+          const settled = await fetchRecentSettledLaunches()
+          nextState.completedMissions = mergeRecentSettledIntoCompletedList(
+            nextState.completedMissions,
+            settled
+          )
+        } catch (e) {}
+      }
+      return nextState
+    })
   },
 
   async ensureSearchSourceReady(queryInfo) {
@@ -261,6 +299,15 @@ Page({
 
     const results = await Promise.all(missingTypes.map((type) => this.fetchMissionList(type, 50, 0)))
     const updateData = this.buildMissionListReadyState(results, missingTypes)
+    if (Array.isArray(updateData.completedMissions)) {
+      try {
+        const settled = await fetchRecentSettledLaunches()
+        updateData.completedMissions = mergeRecentSettledIntoCompletedList(
+          updateData.completedMissions,
+          settled
+        )
+      } catch (e) {}
+    }
     this.setData(buildMissionReadyState(updateData))
   },
 
@@ -554,7 +601,8 @@ Page({
         queryInfo: searchContext.queryInfo,
         upcomingMissions: this.data.upcomingMissions,
         completedMissions: this.data.completedMissions,
-        agencies: this._agenciesForSearch || []
+        agencies: this._agenciesForSearch || [],
+        rocketModels: await this._loadRocketModelsForSearch()
       })
       this.cacheSearchResults(refreshedCacheKey || searchContext.cacheKey, results)
       this.applySearchResults(kw, searchContext.queryInfo, results)
@@ -616,6 +664,11 @@ Page({
         if (app && app.globalData) app.globalData.pendingAgencyDetailId = id
       } catch (err) {}
       wx.switchTab({ url: '/pages/monitor/monitor' })
+      return
+    }
+
+    if (type === 'rocket_model') {
+      this.onSearchRocketModelTap(e)
       return
     }
 
@@ -805,6 +858,39 @@ Page({
     }, measureDelay)
   },
 
+  async _loadRocketModelsForSearch() {
+    if (!this._rocketConfigsPromise) {
+      this._rocketConfigsPromise = (async () => {
+        try {
+          // 不要 afterGate：免费用户只吃缓存/已开通目录，不把付费全表漏给搜索
+          const meta = await getRocketConfigMeta()
+          return collectRocketModelsFromConfigs(meta && meta.configs)
+        } catch (e) {
+          return []
+        }
+      })()
+    }
+    const fromConfigs = await this._rocketConfigsPromise
+    return mergeRocketModels(
+      fromConfigs,
+      collectRocketModelsFromMissions(this.data.upcomingMissions, this.data.completedMissions)
+    )
+  },
+
+  async onSearchRocketModelTap(e) {
+    const ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    let configId = cleanConfigId(ds.configId)
+    if (!configId && /^\d+$/.test(String(ds.id || ''))) configId = String(ds.id)
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+    if (!allowed) return
+    if (!configId) {
+      wx.showToast({ title: '暂无该型号档案', icon: 'none' })
+      return
+    }
+    navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId })
+  },
+
   async _preloadAgenciesForSearch() {
     try {
       const data = await getAgencies({ featured: true, limit: 50, offset: 0 })
@@ -882,8 +968,18 @@ Page({
       : '智能搜索火箭与发射任务 | 火星探索日志'
     return {
       title,
-      path: '/pages/search/search' + (q ? ('?' + this._shareTimelineSearchQuery()) : '')
+      path: '/pages/search/search' + (q ? ('?' + this._shareTimelineSearchQuery()) : ''),
+      imageUrl: this._shareThumb()
     }
+  },
+
+  _shareThumb() {
+    const splash = String(this.data.splashShareImageUrl || '').trim()
+    return pickShareImageUrl({
+      displayImage: splash || this.data.shareImage,
+      rawImage: splash,
+      safeFallback: SHARE_THUMB_FALLBACK
+    }) || pageShareImage(this)
   },
 
   onShareTimeline() {
@@ -891,14 +987,10 @@ Page({
     const title = q
       ? ('智能搜索：' + q + ' | 火星探索日志')
       : '智能搜索火箭与发射任务 | 火星探索日志'
-    const payload = {
+    return {
       title,
-      query: this._shareTimelineSearchQuery()
+      query: this._shareTimelineSearchQuery(),
+      imageUrl: this._shareThumb()
     }
-    const img = String(this.data.splashShareImageUrl || '').trim()
-    if (img) {
-      payload.imageUrl = img
-    }
-    return payload
   }
 })

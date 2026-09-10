@@ -5,6 +5,11 @@ const {
 } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
+const {
+  isLocalSharePath,
+  pickHardwareShareImageUrl,
+  pickHardwareShareSourceForDownload
+} = require('./utils/hardware-share-image.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -75,8 +80,8 @@ function pickCurrentHardwareVehicle(vehicles, category) {
 }
 
 /**
- * 与 progress 页 normalizeStarshipStatusData 的 detail 部分保持一致；
- * hardwareImage：首页组合体卡片同源的 NSF 硬件 Active 图，优先于 starshipStatus 旧图
+ * detail 口径与 starshipStatus/current 后台字段保持一致；
+ * hardwareImage：与「星舰硬件设施」同源的 NSF 硬件 Active 图，优先于 starshipStatus 旧图
  */
 function buildDetail(item, type, hardwareVehicle) {
   const detail = (item && item.detail) || {}
@@ -86,7 +91,7 @@ function buildDetail(item, type, hardwareVehicle) {
     : buildVehicleLabel(item, type)
   const fallbackSubtitle = type === 'ship' ? 'STARSHIP' : 'SUPER HEAVY'
 
-  // 自动数据优先：硬件 Active 图（与首页 overlay 同源）> NSF status 图 > 后台 thumbnail
+  // 自动数据优先：硬件 Active 图 > NSF status 图 > 后台 thumbnail
   const images = []
   if (hardwareVehicle && hardwareVehicle.image) {
     images.push(hardwareVehicle.image)
@@ -126,6 +131,7 @@ Page({
     detail: null,
     discussionTopic: '',
     navTitle: '进展详情',
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     menuButtonWidth: 88
@@ -133,6 +139,12 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (_) {}
     const type = options && options.type === 'ship' ? 'ship' : 'booster'
     this.setData({ type })
     this.loadDetail(type)
@@ -166,6 +178,7 @@ Page({
           type
         )
       })
+      this._syncShareImage(detail)
     } catch (e) {
       this.setData({ loading: false, errorMessage: '数据加载失败，请稍后重试' })
     }
@@ -178,14 +191,74 @@ Page({
       this.setData({ 'detail.heroImage': raw })
       return
     }
-    this.setData({ 'detail.heroImage': getFallbackImage(this.data.type) })
+    const fallback = getFallbackImage(this.data.type)
+    this.setData({ 'detail.heroImage': fallback })
+    this._syncShareImage(Object.assign({}, detail || {}, { heroImage: fallback }))
+  },
+
+  _shareImageOpts(detail) {
+    const d = detail || this.data.detail || {}
+    return {
+      rawImage: d.rawHeroImage || '',
+      displayImage: d.heroImage || ''
+    }
+  },
+
+  _syncShareImage(detail) {
+    const opts = this._shareImageOpts(detail)
+    const url = pickHardwareShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickHardwareShareSourceForDownload(opts))
+  },
+
+  /** 网络图 / cloud:// 落到本地，规避朋友圈吃不下 fileID、webp */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
+  _buildShareImage() {
+    return this.data.shareImage || pickHardwareShareImageUrl(this._shareImageOpts())
   },
 
   onShareAppMessage() {
-    const title = (this.data.detail && this.data.detail.title) || '星舰组合体进展'
+    const title = (this.data.detail && this.data.detail.title) || (this.data.type === 'ship' ? '星舰飞船' : '超重型助推器')
+    const type = this.data.type === 'ship' ? 'ship' : 'booster'
     return {
       title: title + ' 进展详情 | 火星探索日志',
-      path: '/subpackages/progress-extra/starship-detail?type=' + this.data.type
+      path: '/subpackages/progress-extra/starship-detail?type=' + type,
+      imageUrl: this._buildShareImage()
+    }
+  },
+
+  onShareTimeline() {
+    const title = (this.data.detail && this.data.detail.title) || (this.data.type === 'ship' ? '星舰飞船' : '超重型助推器')
+    const type = this.data.type === 'ship' ? 'ship' : 'booster'
+    return {
+      title: title + ' 进展详情 | 火星探索日志',
+      query: 'type=' + type,
+      imageUrl: this._buildShareImage()
     }
   }
 })

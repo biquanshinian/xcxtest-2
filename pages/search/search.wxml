@@ -5,7 +5,9 @@
       <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
@@ -100,7 +102,7 @@
               <text class="search-group-title search-group-title--{{item.key}}">{{item.title}}</text>
               <text class="search-group-subtitle search-group-subtitle--{{item.key}}">{{item.subtitle}}</text>
             </view>
-            <view class="search-result-item search-result-item--{{result._type}} card-hover" wx:for="{{item.items}}" wx:for-item="result" wx:key="_wxkey" bindtap="onSearchItemTap" data-id="{{result.id}}" data-type="{{result._type}}">
+            <view class="search-result-item search-result-item--{{result._type}} card-hover" wx:for="{{item.items}}" wx:for-item="result" wx:key="_wxkey" bindtap="onSearchItemTap" data-id="{{result.id}}" data-type="{{result._type}}" data-config-id="{{result.configId}}" data-name="{{result.missionName || result.name}}">
               <view class="search-result-head">
                 <view class="search-result-title-wrap">
                   <text wx:for="{{result._titleSegments}}" wx:key="index" wx:for-item="segment" class="{{segment.highlight ? 'search-result-title search-highlight search-highlight--' + result._type : 'search-result-title'}}">{{segment.text}}</text>

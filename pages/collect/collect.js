@@ -1,7 +1,9 @@
 const { getUiShellLayout } = require('../../utils/layout.js')
+const { getSystemInfo } = require('../../utils/system.js')
 const { cloudEnv } = require('../../utils/config.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
-const { isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { isFeatureEnabled, getCachedMainConfig } = require('../../utils/feature-flags.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 const pad2 = (n) => String(n).padStart(2, '0')
 function formatTime(ts) {
@@ -71,28 +73,51 @@ Page({
     wallPage: 0,
     hasMore: true,
     loadingMore: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     themeClass: '',
     themeLight: false,
     pageBgColor: '#000000',
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     /** 功能开关未确认前不渲染详情，避免审核直达先看到完整页 */
     featureAllowed: false
   },
 
   onLoad(options) {
-    const deviceInfo = wx.getDeviceInfo()
-    const windowInfo = wx.getWindowInfo()
-    const systemInfo = Object.assign({}, deviceInfo, windowInfo, wx.getAppBaseInfo())
+    bootPageShareThumb(this)
+    const systemInfo = getSystemInfo()
     const uiShellLayout = getUiShellLayout(systemInfo)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    let menuButtonWidth = 88
+    try {
+      const rect = wx.getMenuButtonBoundingClientRect()
+      if (rect && rect.width) menuButtonWidth = Math.max(88, Math.ceil(rect.width + 24))
+    } catch (_) {}
     this.setData({
       statusBarHeight: uiShellLayout.statusBarHeight,
       navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
+      menuButtonWidth,
       isDirectEntry: pages.length <= 1,
       themeClass: getThemeClassSync(),
       themeLight: isLightSync(),
       pageBgColor: getPageBgSync(),
       featureAllowed: false
     })
+    try { wx.setNavigationBarTitle({ title: '月愿计划', fail() {} }) } catch (_) {}
+
+    // 配置已在内存时立刻开页，避免每次都等库读才出首屏
+    const cached = getCachedMainConfig()
+    if (cached && cached._id) {
+      if (cached.enableLunarWishes === false) {
+        this._blockLunarAccess()
+        return
+      }
+      this._bootLunarPage()
+      isFeatureEnabled('enableLunarWishes', { failClosed: true }).then((on) => {
+        if (!on && this.data.featureAllowed) this._blockLunarAccess()
+      }).catch(() => {})
+      return
+    }
 
     // 先门禁再初始化：读不到配置 / 显式关闭都拦截（failClosed）
     isFeatureEnabled('enableLunarWishes', { failClosed: true })
@@ -109,6 +134,12 @@ Page({
   },
 
   _blockLunarAccess() {
+    this._unloaded = true
+    if (this._bgAudio) {
+      try { this._bgAudio.stop() } catch (_) {}
+      try { this._bgAudio.destroy() } catch (_) {}
+      this._bgAudio = null
+    }
     this.setData({ featureAllowed: false, loading: false, checkingWish: false })
     wx.showToast({ title: '功能暂未开放', icon: 'none' })
     setTimeout(() => {
@@ -118,26 +149,35 @@ Page({
   },
 
   _bootLunarPage() {
-    this.setData({ featureAllowed: true })
-
     const launchDate = new Date('2028-09-01')
     const daysLeft = Math.max(0, Math.ceil((launchDate - new Date()) / 86400000))
-    this.setData({ countdown: daysLeft })
-
-    this._bgAudio = wx.createInnerAudioContext({ useWebAudioImplement: true })
-    this._bgAudio.obeyMuteSwitch = false
-    this._bgAudio.src = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E9%9F%B3%E9%A2%91/1776023812613_6q1kna.MP3'
-    this._bgAudio.loop = true
-    this._bgAudio.volume = 1
-    this._bgAudio.onError((e) => console.error('[Music] error:', e))
-    this._bgAudio.onCanplay(() => { this._audioReady = true })
+    this.setData({ featureAllowed: true, countdown: daysLeft })
 
     this._restoreOrCheckWish()
     this._loadStats()
     this._loadWishWall(true)
   },
 
+  _ensureBgAudio() {
+    if (this._unloaded || this._bgAudio) return this._bgAudio
+    this._bgAudio = wx.createInnerAudioContext({ useWebAudioImplement: true })
+    this._bgAudio.obeyMuteSwitch = false
+    this._bgAudio.src = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E9%9F%B3%E9%A2%91/1776023812613_6q1kna.MP3'
+    this._bgAudio.loop = true
+    this._bgAudio.volume = 1
+    this._bgAudio.onError((e) => {
+      console.error('[Music] error:', e)
+      if (this.data.musicPlaying) this.setData({ musicPlaying: false })
+    })
+    this._bgAudio.onCanplay(() => {
+      this._audioReady = true
+      if (this.data.musicPlaying && this._bgAudio) this._bgAudio.play()
+    })
+    return this._bgAudio
+  },
+
   onUnload() {
+    this._unloaded = true
     if (this._bgAudio) {
       this._bgAudio.stop()
       this._bgAudio.destroy()
@@ -147,10 +187,11 @@ Page({
 
   onToggleMusic() {
     if (this.data.musicPlaying) {
-      this._bgAudio.pause()
+      if (this._bgAudio) this._bgAudio.pause()
       this.setData({ musicPlaying: false })
     } else {
-      this._bgAudio.play()
+      const audio = this._ensureBgAudio()
+      if (audio) audio.play()
       this.setData({ musicPlaying: true })
     }
   },
@@ -390,6 +431,13 @@ Page({
     this.setData({ starPoints: stars })
   },
 
+  onCollectScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
+  },
+
   loadMore() {
     if (this.data.loadingMore || !this.data.hasMore) return
     this._loadWishWall(false)
@@ -449,25 +497,29 @@ Page({
       const w = this.data.activeWish
       return {
         title: `"${w.wish.slice(0, 40)}${w.wish.length > 40 ? '...' : ''}" —— ${w.name} 的月球心愿`,
-        path: '/pages/collect/collect'
+        path: '/pages/collect/collect',
+        imageUrl: pageShareImage(this)
       }
     }
     const pass = this.data.boardingPass
     if (pass && pass.status === 'pending') {
       return {
         title: '月愿计划 · 把你的心愿送上月球 🌙',
-        path: '/pages/collect/collect'
+        path: '/pages/collect/collect',
+        imageUrl: pageShareImage(this)
       }
     }
     return {
       title: '月愿计划 · 把你的心愿送上月球 🌙',
-      path: '/pages/collect/collect'
+      path: '/pages/collect/collect',
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
-      title: '月愿计划 · 把你的心愿送上月球'
+      title: '月愿计划 · 把你的心愿送上月球',
+      imageUrl: pageShareImage(this)
     }
   }
 })

@@ -1,0 +1,10 @@
+{
+  "name": "astroPhotos",
+  "version": "1.0.0",
+  "description": "航天摄影（影像）UGC 云函数：COS 预签名、投稿、公开列表与审核",
+  "main": "index.js",
+  "dependencies": {
+    "cos-nodejs-sdk-v5": "^2.14.0",
+    "wx-server-sdk": "~2.6.3"
+  }
+}

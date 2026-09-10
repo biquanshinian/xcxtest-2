@@ -1,0 +1,123 @@
+{
+  "count": 2542,
+  "first": {
+    "id": 1618,
+    "latitude": 25.99684,
+    "longitude": -97.158041
+  },
+  "last": {
+    "id": 4261,
+    "latitude": -17.393679,
+    "longitude": 106.468404
+  },
+  "lonRange": [
+    -97.158041,
+    106.721582
+  ],
+  "latRange": [
+    -27.026492,
+    25.99684
+  ],
+  "sample": [
+    {
+      "id": 1618,
+      "latitude": 25.99684,
+      "longitude": -97.158041
+    },
+    {
+      "id": 1754,
+      "latitude": -18.652453,
+      "longitude": 4.096215
+    },
+    {
+      "id": 1884,
+      "latitude": -17.600188,
+      "longitude": 106.719156
+    },
+    {
+      "id": 2015,
+      "latitude": -17.59414,
+      "longitude": 106.708658
+    },
+    {
+      "id": 2146,
+      "latitude": -17.57774,
+      "longitude": 106.697062
+    },
+    {
+      "id": 2276,
+      "latitude": -17.562821,
+      "longitude": 106.685624
+    },
+    {
+      "id": 2407,
+      "latitude": -17.550092,
+      "longitude": 106.672532
+    },
+    {
+      "id": 2539,
+      "latitude": -17.53586,
+      "longitude": 106.659376
+    },
+    {
+      "id": 2672,
+      "latitude": -17.52469,
+      "longitude": 106.644653
+    },
+    {
+      "id": 2802,
+      "latitude": -17.513684,
+      "longitude": 106.630289
+    },
+    {
+      "id": 2932,
+      "latitude": -17.503636,
+      "longitude": 106.617794
+    },
+    {
+      "id": 3065,
+      "latitude": -17.491335,
+      "longitude": 106.606133
+    },
+    {
+      "id": 3197,
+      "latitude": -17.479844,
+      "longitude": 106.593093
+    },
+    {
+      "id": 3329,
+      "latitude": -17.46787,
+      "longitude": 106.579686
+    },
+    {
+      "id": 3461,
+      "latitude": -17.456104,
+      "longitude": 106.565768
+    },
+    {
+      "id": 3594,
+      "latitude": -17.44376,
+      "longitude": 106.550345
+    },
+    {
+      "id": 3724,
+      "latitude": -17.432947,
+      "longitude": 106.534892
+    },
+    {
+      "id": 3858,
+      "latitude": -17.423376,
+      "longitude": 106.517883
+    },
+    {
+      "id": 3989,
+      "latitude": -17.413376,
+      "longitude": 106.501272
+    },
+    {
+      "id": 4124,
+      "latitude": -17.402754,
+      "longitude": 106.485186
+    }
+  ]
+}

@@ -1,5 +1,20 @@
-/* ══ 会员续费提醒弹窗（深空玻璃拟态，与简报弹窗同一视觉体系） ══ */
+/* ══ 会员续费提醒弹窗（深空玻璃拟态，与简报弹窗同一视觉体系） ══
+   root-portal 真机不继承 page 主题变量，故在 .renewal-mask 上自挂整套 token */
 .renewal-mask {
+  --color-bg-card: #16181C;
+  --bg-glass-popup: rgba(22, 24, 28, 0.85);
+  --color-text-primary: #F5F5F7;
+  --color-text-secondary: #8E8E93;
+  --color-text-tertiary: #6E6E73;
+  --color-text-on-glass: rgba(245, 245, 247, 0.92);
+  --color-divider: rgba(255, 255, 255, 0.08);
+  --color-divider-strong: rgba(255, 255, 255, 0.12);
+  --color-divider-faint: rgba(255, 255, 255, 0.04);
+  --color-brand: #3B82F6;
+  --shadow-card: 0 32rpx 96rpx rgba(0, 0, 0, 0.55);
+  --icon-invert: 0;
+  --renewal-gold: #ffcf7d;
+  --renewal-gold-deep: #8A5500;
   position: fixed;
   top: 0;
   left: 0;
@@ -11,9 +26,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 40rpx calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 40rpx calc(20px + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
   animation: renewalFadeIn 0.25s ease;
+}
+
+.renewal-mask.theme-light {
+  --color-bg-card: #FFFFFF;
+  --bg-glass-popup: rgba(255, 255, 255, 0.92);
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #8E8E93;
+  --color-text-on-glass: rgba(28, 28, 30, 0.92);
+  --color-divider: rgba(0, 0, 0, 0.07);
+  --color-divider-strong: rgba(0, 0, 0, 0.1);
+  --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 24rpx 64rpx rgba(0, 0, 0, 0.12);
+  --icon-invert: 1;
+  --renewal-gold: #C57500;
+  --renewal-gold-deep: #8A5500;
 }
 
 @keyframes renewalFadeIn {
@@ -25,12 +56,16 @@
   position: relative;
   width: 100%;
   max-width: 640rpx;
-  background: var(--color-bg-card);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 36rpx;
-  border: 1px solid var(--color-border-glass);
-  box-shadow:
-    0 32rpx 96rpx rgba(0, 0, 0, 0.55),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card, 0 32rpx 96rpx rgba(0, 0, 0, 0.55));
   overflow: hidden;
   animation: renewalSlideUp 0.32s cubic-bezier(0.22, 0.9, 0.32, 1.1);
 }
@@ -62,6 +97,10 @@
   background: rgba(255, 255, 255, 0.85);
   animation: renewalTwinkle 2.8s ease-in-out infinite;
 }
+
+.theme-light .renewal-star {
+  background: rgba(197, 117, 0, 0.42);
+}
 .renewal-star.s1 { top: 12%; left: 14%; }
 .renewal-star.s2 { top: 8%; right: 22%; width: 4rpx; height: 4rpx; animation-delay: 0.6s; }
 .renewal-star.s3 { top: 22%; right: 10%; animation-delay: 1.2s; }
@@ -86,6 +125,13 @@
   border-radius: 36rpx;
   background: var(--color-divider);
   z-index: 2;
+  flex-shrink: 0;
+}
+
+.renewal-close::after {
+  content: '';
+  position: absolute;
+  inset: -12rpx;
 }
 
 .renewal-close--hover { background: var(--color-divider-strong); }
@@ -99,10 +145,22 @@
 
 .renewal-body {
   position: relative;
+  width: 100%;
   padding: 64rpx 48rpx 40rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
+  box-sizing: border-box;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.renewal-kicker {
+  font-size: 20rpx;
+  color: var(--renewal-gold);
+  letter-spacing: 4rpx;
+  margin-bottom: 8rpx;
+  opacity: 0.9;
 }
 
 /* 会员徽章 + 呼吸光环 */
@@ -114,6 +172,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 28rpx;
+  flex-shrink: 0;
 }
 
 .renewal-badge {
@@ -121,6 +180,7 @@
   height: 120rpx;
   position: relative;
   z-index: 1;
+  display: block;
   filter: drop-shadow(0 8rpx 24rpx rgba(255, 180, 80, 0.35));
 }
 
@@ -213,19 +273,28 @@
 .renewal-btn {
   width: 100%;
   height: 96rpx;
-  line-height: 96rpx;
+  min-height: 96rpx;
+  box-sizing: border-box;
   border-radius: 48rpx;
   background: linear-gradient(135deg, #ffcf7d 0%, #ff9d4d 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40rpx;
+  border: none;
+  flex-shrink: 0;
+  box-shadow: 0 12rpx 32rpx rgba(255, 157, 77, 0.35);
+}
+
+.renewal-btn-text {
   color: #3a2404;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  border: none;
-  padding: 0;
-  box-shadow: 0 12rpx 32rpx rgba(255, 157, 77, 0.35);
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
 }
-
-.renewal-btn::after { border: none; }
 
 .renewal-btn--hover {
   opacity: 0.88;
@@ -255,6 +324,7 @@
   flex-direction: column;
   gap: 12rpx;
   margin-bottom: 28rpx;
+  flex-shrink: 0;
 }
 
 .promo-benefit {
@@ -268,18 +338,26 @@
 }
 
 .promo-benefit-icon {
-  width: 64rpx;
-  height: 64rpx;
+  width: 72rpx;
+  height: 72rpx;
   border-radius: 18rpx;
-  background: linear-gradient(135deg, rgba(255, 209, 138, 0.22), rgba(255, 157, 77, 0.16));
-  border: 1px solid rgba(255, 196, 92, 0.28);
+  background: rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 32rpx;
-  color: #ffcf7d;
-  font-weight: 700;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.theme-light .promo-benefit-icon {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.promo-benefit-icon-img {
+  width: 72rpx;
+  height: 72rpx;
+  display: block;
 }
 
 .promo-benefit-info {
@@ -305,6 +383,7 @@
   align-items: center;
   gap: 20rpx;
   margin-bottom: 32rpx;
+  flex-shrink: 0;
 }
 
 .promo-price-hint {
@@ -313,7 +392,7 @@
 }
 
 .promo-price-hint--em {
-  color: #ffcf7d;
+  color: var(--renewal-gold);
   font-weight: 600;
 }
 
@@ -321,4 +400,181 @@
   width: 2rpx;
   height: 24rpx;
   background: var(--color-divider-strong);
+}
+
+.theme-light .renewal-glow {
+  background: radial-gradient(ellipse at center, rgba(255, 196, 92, 0.18) 0%, rgba(255, 160, 60, 0.06) 45%, transparent 72%);
+}
+
+.theme-light .renewal-badge {
+  filter: drop-shadow(0 6rpx 16rpx rgba(200, 140, 20, 0.28));
+}
+
+.theme-light .renewal-btn {
+  box-shadow: 0 10rpx 24rpx rgba(220, 160, 40, 0.28);
+}
+
+.theme-light .promo-benefit {
+  background: #FFFCF3;
+  border-color: rgba(242, 212, 138, 0.45);
+}
+
+/* iPad / 宽屏：用 px 锁住手机稿尺寸，避免 rpx 随屏宽放大把弹窗顶出安全区、胶囊字被裁切 */
+.renewal-mask--tablet {
+  padding: calc(28px + env(safe-area-inset-top, 0px)) 24px calc(28px + env(safe-area-inset-bottom, 0px));
+}
+
+.renewal-mask--tablet .renewal-popup {
+  max-width: 400px;
+  max-height: 76vh;
+  border-radius: 20px;
+}
+
+.renewal-mask--tablet .renewal-close {
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+}
+
+.renewal-mask--tablet .renewal-close::after {
+  inset: -8px;
+}
+
+.renewal-mask--tablet .renewal-close-icon {
+  font-size: 14px;
+}
+
+.renewal-mask--tablet .renewal-body {
+  padding: 24px 24px 16px;
+}
+
+.renewal-mask--tablet .renewal-badge-wrap {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 10px;
+}
+
+.renewal-mask--tablet .renewal-badge {
+  width: 52px;
+  height: 52px;
+}
+
+.renewal-mask--tablet .renewal-title {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.renewal-mask--tablet .renewal-days-num {
+  font-size: 44px;
+}
+
+.renewal-mask--tablet .renewal-days-unit {
+  font-size: 14px;
+}
+
+.renewal-mask--tablet .renewal-date {
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
+.renewal-mask--tablet .renewal-perks {
+  padding: 12px 14px;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+}
+
+.renewal-mask--tablet .renewal-perk {
+  font-size: 13px;
+  gap: 8px;
+}
+
+.renewal-mask--tablet .promo-subtitle {
+  font-size: 13px;
+  margin: -2px 0 12px;
+}
+
+.renewal-mask--tablet .promo-benefits {
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.renewal-mask--tablet .promo-benefit {
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.renewal-mask--tablet .promo-benefit-icon,
+.renewal-mask--tablet .promo-benefit-icon-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+
+.renewal-mask--tablet .promo-benefit-name {
+  font-size: 14px;
+}
+
+.renewal-mask--tablet .promo-benefit-desc {
+  font-size: 11px;
+}
+
+.renewal-mask--tablet .promo-price-row {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.renewal-mask--tablet .promo-price-hint {
+  font-size: 12px;
+}
+
+.renewal-mask--tablet .promo-price-divider {
+  height: 12px;
+}
+
+.renewal-mask--tablet .renewal-btn {
+  height: 48px;
+  min-height: 48px;
+  border-radius: 24px;
+  padding: 0 20px;
+}
+
+.renewal-mask--tablet .renewal-btn-text {
+  font-size: 16px;
+  letter-spacing: 0.4px;
+  line-height: 1.25;
+}
+
+.renewal-mask--tablet .renewal-later {
+  margin-top: 10px;
+  padding: 6px 16px;
+  font-size: 13px;
+}
+
+/* 宽且高的窗口兜底（不含横屏手机）：即使机型判断未命中，也锁住窗口与胶囊比例 */
+@media (min-width: 500px) and (min-height: 500px) {
+  .renewal-mask {
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 24px calc(28px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .renewal-popup {
+    max-width: 400px;
+    max-height: 76vh;
+  }
+
+  .renewal-btn {
+    height: 48px;
+    min-height: 48px;
+    border-radius: 24px;
+    padding: 0 20px;
+  }
+
+  .renewal-btn-text {
+    font-size: 16px;
+    letter-spacing: 0.4px;
+    line-height: 1.25;
+  }
 }

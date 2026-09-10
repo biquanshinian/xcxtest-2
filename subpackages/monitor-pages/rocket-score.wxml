@@ -1,0 +1,130 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view scroll-y class="detail-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="detail-skeleton detail-skeleton--pad" wx:if="{{loading}}" aria-hidden="{{true}}">
+      <view class="skeleton-card skeleton-card--hero">
+        <view class="skeleton-hero skeleton-shimmer"></view>
+        <view class="skeleton-card-body">
+          <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+        </view>
+      </view>
+      <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+        <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+      </view>
+      <text class="score-loading-hint">正在拉取型号档案…</text>
+    </view>
+
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <view class="score-body {{animOn ? 'score-body--on' : ''}}" wx:elif="{{view}}">
+      <view class="score-hero">
+        <image
+          class="score-hero-img {{heroReady ? 'score-hero-img--on' : ''}}"
+          wx:if="{{model.imageUrl}}"
+          src="{{model.imageUrl}}"
+          mode="aspectFill"
+          bindload="onHeroLoad"
+        />
+        <view class="score-hero-img score-hero-ph" wx:else></view>
+        <view class="score-hero-mask"></view>
+        <view class="score-hero-meta">
+          <view class="score-chips">
+            <text class="score-chip">{{view.classLabel}}</text>
+            <text class="score-chip" wx:if="{{model.reusable}}">可复用</text>
+            <text class="score-chip" wx:elif="{{model}}">一次性</text>
+          </view>
+          <view class="score-name-row">
+            <text class="score-name">{{model.fullName}}</text>
+            <text class="score-flag" wx:if="{{model.countryFlag}}">{{model.countryFlag}}</text>
+          </view>
+          <text class="score-sub score-sub--link" wx:if="{{model.manufacturerId}}" catchtap="onTapManufacturer">{{model.manufacturerDisplay || model.manufacturer}}</text>
+          <text class="score-sub" wx:elif="{{model.manufacturerDisplay || model.manufacturer}}">{{model.manufacturerDisplay || model.manufacturer}}</text>
+        </view>
+      </view>
+
+      <view class="score-orb glass-card">
+        <view class="score-orb-left">
+          <text class="score-num">{{scoreShown}}</text>
+          <text class="score-num-unit">档案指数</text>
+        </view>
+        <view class="score-orb-right">
+          <text class="score-grade score-grade--{{view.grade.id}}">{{view.grade.label}}</text>
+          <text class="score-grade-hint">{{view.grade.hint}}</text>
+          <text class="score-peers" wx:if="{{view.peerCount}}">同量级 {{view.peerCount}} 款 · 评了 {{view.scoredCount}}/6 维</text>
+        </view>
+      </view>
+
+      <view class="radar-card glass-card">
+        <text class="section-label">同级画像</text>
+        <view class="radar-stage">
+          <canvas type="2d" id="scoreRadar" class="radar-canvas"></canvas>
+          <view
+            class="radar-mark {{item.missing ? 'radar-mark--off' : ''}}"
+            wx:for="{{view.radar.labels}}"
+            wx:key="id"
+            style="left: {{item.x}}%; top: {{item.y}}%;"
+          >
+            <text class="radar-lab">{{item.label}}</text>
+            <text class="radar-score">{{item.scoreShown}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="dim-card glass-card">
+        <text class="section-label">维度明细</text>
+        <view
+          class="dim-row {{item.missing ? 'dim-row--off' : ''}}"
+          wx:for="{{view.dims}}"
+          wx:key="id"
+          style="animation-delay: {{index * 70}}ms;"
+        >
+          <view class="dim-head">
+            <text class="dim-label">{{item.label}}</text>
+            <text class="dim-score">{{item.scoreShown}}</text>
+          </view>
+          <view class="dim-bar">
+            <view class="dim-fill" style="width: {{item.pct}}%;"></view>
+          </view>
+          <view class="dim-foot">
+            <text class="dim-raw">{{item.rawText || '—'}}</text>
+            <text class="dim-hint">{{item.hint}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="insight-card" wx:if="{{view.insights.length}}">
+        <text class="insight-line insight-line--{{item.tone}}" wx:for="{{view.insights}}" wx:key="text">{{item.text}}</text>
+      </view>
+
+      <text class="score-disclaimer">{{view.disclaimer}}</text>
+
+      <view class="score-actions">
+        <view class="score-act score-act--ghost" bindtap="onTapArchive">查看档案</view>
+        <view class="score-act score-act--on" bindtap="onTapCompare">去对比</view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

@@ -57,7 +57,10 @@
           </view>
           <!-- 第二行：类型标签 + 金额 -->
           <view class="od-card-mid">
-            <text class="od-type-tag od-type-tag--{{item.orderType}}">{{item.typeText}}</text>
+            <view class="od-type-row">
+              <text class="od-type-tag od-type-tag--{{item.orderType}}">{{item.typeText}}</text>
+              <text class="od-type-tag od-type-tag--apple" wx:if="{{item.isApplePay}}">Apple 支付</text>
+            </view>
             <view class="od-amount-col">
               <text class="od-amount">¥{{item.amountText}}</text>
               <text class="od-refund-note" wx:if="{{item.refundText}}">{{item.refundText}}</text>
@@ -85,6 +88,7 @@
       <view class="od-footer-note" wx:if="{{orders.length > 0}}">
         <text>· 订单号是售后与退款的唯一凭证，点击可复制</text>
         <text>· 长按订单卡片可删除记录，删除后不可恢复</text>
+        <text>· iOS 订单请在 App Store 申请退款，开发者无法主动退款</text>
         <text>· 如有疑问请联系客服，提供订单号与用户ID</text>
       </view>
     </block>

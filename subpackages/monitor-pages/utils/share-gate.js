@@ -17,7 +17,15 @@
  *            warmShareEntitlement(this, productId)   // 静默预取自身权益，供分享时同步读取
  *   分享:    path 追加 appendShareStamp(this) 返回的 'sst=…'（空串表示不追加）
  */
-const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased } = require('../../../utils/membership.js')
+const {
+  gateCheck,
+  isMembershipEnabled,
+  getMembershipState,
+  isPro,
+  hasPurchased,
+  canUsePaidCloudSync,
+  canSaveOriginalVideoSync
+} = require('../../../utils/membership.js')
 
 const SHARE_GATE_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -30,6 +38,26 @@ function parseShareStamp(options) {
 }
 
 /**
+ * 同步判定是否有分享权益（避免 warm 异步未完成时立刻转发漏写 sst）。
+ * 优先页面缓存标记；否则读会员本地缓存（Pro / 已购 / 会员关）。
+ */
+function resolveShareEntitledSync(page) {
+  if (page && page._shareEntitled) return true
+  const productId = page && page._shareGateProductId
+  try {
+    if (canUsePaidCloudSync()) {
+      if (page) page._shareEntitled = true
+      return true
+    }
+    if (productId && canSaveOriginalVideoSync(productId)) {
+      if (page) page._shareEntitled = true
+      return true
+    }
+  } catch (e) {}
+  return !!(page && page._shareEntitled)
+}
+
+/**
  * 详情页 onLoad 分享入口校验。
  * 返回 true = 放行渲染；false = 分享已过期且用户无权益（gateCheck 已弹过开通引导）。
  * 非分享进入（无 sst，包括 App 内导航和旧版分享卡片）一律放行，与原有行为一致。
@@ -37,6 +65,7 @@ function parseShareStamp(options) {
 async function checkShareEntryGate(page, options, productId, productName) {
   const sst = parseShareStamp(options)
   page._shareSst = sst
+  if (productId) page._shareGateProductId = productId
   if (!sst) return true
   if (Date.now() - sst <= SHARE_GATE_TTL_MS) {
     // 免门控窗口内：展示底部「限时查看」倒计时胶囊（会员本人在 warmShareEntitlement 里再隐藏）
@@ -49,7 +78,13 @@ async function checkShareEntryGate(page, options, productId, productName) {
 
 /** 静默预取自身权益（不弹窗），结果缓存在页面实例上，供同步的分享回调读取 */
 function warmShareEntitlement(page, productId) {
-  page._shareEntitled = false
+  if (productId) page._shareGateProductId = productId
+  // 先同步读缓存，堵住「进页立刻转发」的竞态
+  page._shareEntitled = resolveShareEntitledSync(page)
+  if (page._shareEntitled && page.data && page.data.shareGateExpireAt) {
+    page.setData({ shareGateExpireAt: 0 })
+  }
+
   isMembershipEnabled()
     .then((enabled) => {
       if (!enabled) {
@@ -74,7 +109,8 @@ function warmShareEntitlement(page, productId) {
  * 有权益 → 新时间戳（重开 24 小时窗口）；无权益 → 继承进入时的时间戳（窗口不重置）。
  */
 function appendShareStamp(page) {
-  const ms = page._shareEntitled ? Date.now() : (page._shareSst || 0)
+  const entitled = resolveShareEntitledSync(page)
+  const ms = entitled ? Date.now() : (page._shareSst || 0)
   return ms ? 'sst=' + ms.toString(36) : ''
 }
 

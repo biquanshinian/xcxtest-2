@@ -2,10 +2,18 @@ const { getStationStatus } = require('../../utils/api-monitor-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const pageBase = require('../../utils/page-base.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
+const { takeDescI18nSeed } = require('../../utils/locale.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const {
-  NORAD_MAP, createSatrec, getCurrentPosition, computeOrbitPath,
+  isLocalSharePath,
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload
+} = require('./utils/rocket-model-share-image.js')
+const {
+  STATION_MARKER_ICON, resolveNoradId, pickStationTle,
+  createSatrec, getCurrentPosition, computeOrbitPath,
   computePastOrbitPath, getOrbitalParams, getLookAngles,
   getPositionAndLookAngles,
   formatSpeed, formatAltitude, formatCoord
@@ -18,6 +26,7 @@ Page({
     loading: true,
     errorMessage: '',
     item: null,
+    isTiangong: false,
     heroImageLoaded: false,
     heroImageFailed: false,
     descExpanded: false,
@@ -26,6 +35,7 @@ Page({
     descI18n: { stationDesc: '' },
     navTitle: '空间站详情',
     shareTitle: '空间站详情 | 火星探索日志',
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     scrollRefreshing: false,
@@ -62,7 +72,8 @@ Page({
     hasUserLocation: false,
     tleUpdateTime: '--',
     orbitMapExpanded: true,
-    orbitParamsExpanded: false
+    orbitParamsExpanded: false,
+    mapSetting: { enableSatellite: true }
   },
 
   _satrec: null,
@@ -73,11 +84,34 @@ Page({
   async onLoad(options) {
     const id = options.id ? String(options.id).trim() : ''
     this._stationId = id
+    let previewName = ''
+    if (options && options.name) {
+      try { previewName = decodeURIComponent(String(options.name)) } catch (e) { previewName = String(options.name) }
+      previewName = String(previewName || '').trim().slice(0, 40)
+    }
+    if (previewName) this.setData({ navTitle: previewName, shareTitle: `${previewName} | 火星探索日志` })
 
     // 如果源页面传递了封面图 URL，立即展示 Hero 大图（不等 API 返回）
-    const preloadImage = options.image ? decodeURIComponent(options.image) : ''
+    let preloadImage = options.image ? decodeURIComponent(options.image) : ''
+    let preloadFallbacks = []
+    try {
+      const app = getApp()
+      const passed = app && app._stationHeroImage
+      if (passed && String(passed.id) === String(id)) {
+        if (passed.src) preloadImage = passed.src
+        preloadFallbacks = Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+        app._stationHeroImage = null
+      }
+    } catch (e) {}
     if (preloadImage) {
-      this.setData({ item: { image: preloadImage } })
+      const preloadItem = { image: preloadImage, imageFallbacks: preloadFallbacks }
+      this.setData({
+        item: preloadItem,
+        isTiangong: Number(id) === 18
+      })
+      this._syncShareImage(preloadItem)
+    } else if (id) {
+      this.setData({ isTiangong: Number(id) === 18 })
     }
 
     this.initUiShell()
@@ -113,23 +147,42 @@ Page({
     try {
       // 并行发起：空间站列表 + 轨道数据
       const numId = Number(id)
-      const noradId = NORAD_MAP[numId]
+      const noradId = resolveNoradId(numId)
       const stationPromise = getStationStatus()
       const tlePromise = noradId ? this.fetchStationTLE() : Promise.resolve(null)
 
       const stationList = await stationPromise
       const item = (stationList || []).find(s => String(s.id) === String(id)) || null
       if (!item) throw new Error('未找到对应空间站信息')
-      this.setData({
+      // 卡面已展示成功的图优先保留，避免 API 链首失败图把已成功头图冲掉
+      const showing = this.data.item && this.data.item.image
+      let merged = item
+      if (showing && showing !== item.image) {
+        const fb = [item.image].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+          return u && u !== showing && arr.indexOf(u) === i
+        })
+        merged = Object.assign({}, item, { image: showing, imageFallbacks: fb })
+      }
+      this.setData(Object.assign({
         loading: false,
-        item,
-        navTitle: '空间站详情',
-        shareTitle: `${item.name || '空间站详情'} | 火星探索日志`
-      })
+        item: merged,
+        isTiangong: Number(merged.id) === 18,
+        navTitle: merged.name || '空间站详情',
+        shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
+      }, takeDescI18nSeed(this, { stationDesc: merged.descriptionZh })))
+      this._syncShareImage(merged)
 
       // 轨道数据在后台继续处理
       this._applyOrbitData(numId, noradId, tlePromise)
     } catch (error) {
+      // 下拉刷新失败：保留上次成功数据，避免整页被错误态抹掉
+      if (opts.silent && this.data.item) {
+        this.setData({ loading: false })
+        try {
+          wx.showToast({ title: '刷新失败，仍显示缓存数据', icon: 'none' })
+        } catch (e) {}
+        return
+      }
       this.setData({
         loading: false,
         errorMessage: (error && (error.errMsg || error.message)) || '空间站详情加载失败，请稍后重试'
@@ -144,17 +197,25 @@ Page({
     }
     this.setData({ orbitLoading: true, orbitError: '' })
     try {
-      const tleData = await tlePromise
-      if (!tleData || !tleData.tle || !tleData.tle[noradId]) {
+      let tleData = await tlePromise
+      let tle = pickStationTle(tleData, noradId)
+      // 本地/云库缓存可能只有 ISS：目标站缺失时强制走 Worker，与 ISS 行为对齐
+      if (!tle) {
+        tleData = await this.fetchFromWorker(true).catch(() => null)
+        tle = pickStationTle(tleData, noradId)
+        if (tleData && tleData.tle) {
+          try { wx.setStorageSync('_station_tle_cache', { data: tleData, ts: Date.now() }) } catch (e) {}
+        }
+      }
+      if (!tle) {
         throw new Error('未获取到 TLE 数据')
       }
-      const tle = tleData.tle[noradId]
       const satrec = createSatrec(tle.line1, tle.line2)
       if (!satrec) throw new Error('TLE 数据解析失败')
       this._satrec = satrec
 
       const params = getOrbitalParams(satrec)
-      const tleTs = tleData.ts
+      const tleTs = tleData && tleData.ts
       const tleUpdateTime = tleTs ? this.formatTleTime(tleTs) : '--'
 
       const paramPatch = params ? {
@@ -218,30 +279,18 @@ Page({
   },
 
   _silentRefreshFromWorker() {
-    // 后台静默请求 Worker，成功后写入云数据库供下次使用
+    // 只刷新本地缓存；云库 station_tle 由 syncTLE 定时写，客户端不再抢写
     this.fetchFromWorker().then(workerData => {
       if (!workerData || !workerData.tle) return
-      const db = wx.cloud.database()
-      const record = {
-        tle: workerData.tle,
-        source: 'Worker-silent',
-        fetchedAt: workerData.ts || Date.now(),
-        updatedAtMs: Date.now(),
-        stationCount: Object.keys(workerData.tle).filter(k => workerData.tle[k]).length
-      }
-      db.collection('station_tle').where({ recordId: 'latest' }).limit(1).get().then(res => {
-        if (res.data && res.data.length > 0) {
-          db.collection('station_tle').doc(res.data[0]._id).update({ data: record }).catch(() => {})
-        } else {
-          db.collection('station_tle').add({ data: { recordId: 'latest', ...record } }).catch(() => {})
-        }
-      }).catch(() => {})
+      try {
+        wx.setStorageSync('_station_tle_cache', { data: workerData, ts: Date.now() })
+      } catch (e) {}
     }).catch(() => {})
   },
 
-  fetchFromWorker() {
+  fetchFromWorker(force) {
     const { fetchStationTleFromWorker } = require('./utils/tle-fetch.js')
-    return fetchStationTleFromWorker()
+    return fetchStationTleFromWorker(force ? { force: true } : undefined)
   },
 
   fetchFromCloudDB() {
@@ -311,43 +360,24 @@ Page({
     }
   },
 
-  _buildMarker(pos, name, altText, speedText) {
+  _buildMarker(pos) {
     return {
       id: 1,
       latitude: pos.lat,
       longitude: pos.lng,
-      iconPath: '/subpackages/monitor-pages/station-marker.svg',
+      iconPath: STATION_MARKER_ICON,
       width: 20,
       height: 20,
-      callout: {
-        content: name + '\n' + altText + ' · ' + speedText,
+      customCallout: {
         display: 'ALWAYS',
-        fontSize: 11,
-        borderRadius: 10,
-        padding: 8,
-        bgColor: 'rgba(0,0,0,0.82)',
-        color: '#00ff88',
-        borderWidth: 1,
-        borderColor: 'rgba(0,255,136,0.4)',
-        textAlign: 'center'
+        anchorX: 0.5,
+        anchorY: 0
       }
     }
   },
 
   _smoothMoveMarker(pos, name, altText, speedText) {
-    const callout = {
-      content: name + '\n' + altText + ' · ' + speedText,
-      display: 'ALWAYS',
-      fontSize: 11,
-      borderRadius: 10,
-      padding: 8,
-      bgColor: 'rgba(0,0,0,0.82)',
-      color: '#00ff88',
-      borderWidth: 1,
-      borderColor: 'rgba(0,255,136,0.4)',
-      textAlign: 'center'
-    }
-    // 预览地图的 translateMarker
+    // 预览地图的 translateMarker；HUD 文案由 page data + customCallout 槽刷新
     if (!this._mapCtx) {
       this._mapCtx = wx.createMapContext('orbitMapPreview', this)
     }
@@ -357,9 +387,7 @@ Page({
         destination: { latitude: pos.lat, longitude: pos.lng },
         duration: 900,
         autoRotate: false,
-        callout,
         fail: () => {
-          // translateMarker 失败时回退到 setData
           this.setData({
             mapMarkers: [this._buildMarker(pos, name, altText, speedText)]
           })
@@ -455,13 +483,20 @@ Page({
   },
 
   openOrbitMap() {
-    const id = this.data.item ? this.data.item.id : ''
-    const name = encodeURIComponent(this.data.item ? this.data.item.name : '空间站')
-    wx.navigateTo({ url: `${ROUTES.ORBIT_MAP}?stationId=${id}&stationName=${name}` })
+    const id = (this.data.item && this.data.item.id != null) ? this.data.item.id : this._stationId
+    const name = encodeURIComponent((this.data.item && this.data.item.name) || '空间站')
+    let url = `${ROUTES.ORBIT_MAP}?stationId=${id}&stationName=${name}`
+    // 把详情页已算出的实时坐标带过去，全屏图一打开就对准空间站，无需再找
+    if (this._markerCreated && Number.isFinite(this.data.stationLat) && Number.isFinite(this.data.stationLng)) {
+      url += `&lat=${this.data.stationLat}&lng=${this.data.stationLng}`
+    }
+    wx.navigateTo({ url })
   },
 
   centerOnStation() {
-    if (!this.data.stationLat) return
+    // 纬度可为 0（赤道附近），不能用真值判断
+    if (!Number.isFinite(this.data.stationLat) || !Number.isFinite(this.data.stationLng)) return
+    if (!this._markerCreated) return
     this.setData({
       mapLatitude: this.data.stationLat,
       mapLongitude: this.data.stationLng,
@@ -472,7 +507,16 @@ Page({
   refreshOrbitData() {
     if (this.data.orbitLoading) return
     const id = this._stationId
-    if (id) this.loadOrbitData(Number(id))
+    if (!id) return
+    const numId = Number(id)
+    const noradId = resolveNoradId(numId)
+    if (!noradId) {
+      this.setData({ orbitError: '该空间站暂不支持轨道追踪' })
+      return
+    }
+    this.stopOrbitTracking()
+    try { wx.removeStorageSync('_station_tle_cache') } catch (e) {}
+    this._applyOrbitData(numId, noradId, this.fetchStationTLE())
   },
 
   retryOrbitLoad() {
@@ -514,21 +558,32 @@ Page({
     const ds = (e.currentTarget && e.currentTarget.dataset) || {}
     if (ds.cid == null || ds.cid === '') return
     try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid, name: ds.name || '' })
+    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid })
   },
 
-  /** 所属机构卡片点击 → 会员门控 → 发射商详情页（优先 id，回退缩写/名称） */
-  async onOwnerAgencyTap(e) {
+  async onShipAgencyTap(e) {
     const ds = (e.currentTarget && e.currentTarget.dataset) || {}
-    if (!ds.id && !ds.abbrev && !ds.name) return
+    if (!ds.id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
     const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
     if (!allowed) return
-    let params
-    if (ds.id) params = { id: ds.id }
-    else if (ds.abbrev) params = { abbrev: ds.abbrev }
-    else params = { name: ds.name }
-    navigateTo(ROUTES.AGENCY_DETAIL, params)
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: ds.id })
+  },
+
+  /** 所属机构卡片点击 → 会员门控 → 发射商详情页（只带 LL2 id） */
+  async onOwnerAgencyTap(e) {
+    const ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    if (!ds.id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
+    if (!allowed) return
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: ds.id })
   },
 
   onHeroImageLoad() {
@@ -536,6 +591,22 @@ Page({
   },
 
   onHeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.image, item.imageFallbacks)
+    if (advanced.next) {
+      this.setData({
+        heroImageLoaded: false,
+        heroImageFailed: false,
+        'item.image': advanced.next,
+        'item.imageFallbacks': advanced.remaining
+      })
+      this._syncShareImage(Object.assign({}, item, {
+        image: advanced.next,
+        imageFallbacks: advanced.remaining
+      }))
+      return
+    }
+    // 链耗尽才启用 CSS 视觉兜底（与卡片「清空」不同：详情仍有视觉层）
     this.setData({ heroImageLoaded: false, heroImageFailed: true })
   },
 
@@ -550,7 +621,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.stationDesc', text: item.description || '' }]
+      fields: [{ path: 'descI18n.stationDesc', text: item.description || '', zh: item.descriptionZh || '' }]
     })
   },
 
@@ -575,21 +646,84 @@ Page({
     })
   },
 
+  _shareImageOpts(item) {
+    const it = item || this.data.item || {}
+    const fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks.slice() : []
+    return {
+      displayImage: it.image || '',
+      rawImage: it.rawImage || fallbacks[0] || it.image || '',
+      fallbacks: fallbacks
+    }
+  },
+
+  _syncShareImage(item) {
+    const opts = this._shareImageOpts(item)
+    const url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickRocketModelShareSourceForDownload(opts))
+  },
+
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
+  _buildShareImage() {
+    return this.data.shareImage || pickRocketModelShareImageUrl(this._shareImageOpts())
+  },
+
   onShareAppMessage() {
     const item = this.data.item
+    const stationId = (item && item.id != null) ? item.id : this._stationId
+    const id = stationId != null && stationId !== '' ? encodeURIComponent(String(stationId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let path = '/pages/monitor/monitor'
+    if (id) {
+      path = `/subpackages/monitor-pages/station-detail?id=${id}`
+      if (name && name !== '空间站详情') path += `&name=${encodeURIComponent(name)}`
+    }
     return {
       title: this.data.shareTitle,
-      path: item ? `/subpackages/monitor-pages/station-detail?id=${item.id}` : '/pages/monitor/monitor',
-      imageUrl: item && item.image ? item.image : ''
+      path,
+      imageUrl: this._buildShareImage()
     }
   },
 
   onShareTimeline() {
     const item = this.data.item
+    const stationId = (item && item.id != null) ? item.id : this._stationId
+    const id = stationId != null && stationId !== '' ? encodeURIComponent(String(stationId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let query = ''
+    if (id) {
+      query = `id=${id}`
+      if (name && name !== '空间站详情') query += `&name=${encodeURIComponent(name)}`
+    }
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${item.id}` : '',
-      imageUrl: item && item.image ? item.image : ''
+      query,
+      imageUrl: this._buildShareImage()
     }
   }
 })

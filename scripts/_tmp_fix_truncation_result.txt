@@ -1,0 +1,7 @@
+﻿OK: 已排除目录 C:\Users\huyuz\Desktop\xcxtest-2
+OK: 已排除进程 Cursor.exe
+OK: 已排除进程 node.exe
+OK: 已排除进程 git.exe
+当前排除目录: C:\Users\huyuz\Desktop\xcxtest-2
+当前排除进程: Cursor.exe; git.exe; node.exe
+NTFS 脏位: Volume - C: is NOT Dirty

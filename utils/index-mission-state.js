@@ -148,6 +148,102 @@ function shouldScheduleMissionCardMeasurement(options = {}) {
   return !!needsFreshMeasure
 }
 
+function getMissionCardListCount(data) {
+  const safeData = data && typeof data === 'object' ? data : {}
+  const missionType = safeData.missionType
+  const limit = Number(safeData.missionGateLimit) || 0
+  let list = []
+  if (missionType === 'upcoming') {
+    list = Array.isArray(safeData.displayedUpcomingMissions) ? safeData.displayedUpcomingMissions : []
+  } else if (missionType === 'completed') {
+    list = Array.isArray(safeData.completedMissions) ? safeData.completedMissions : []
+  } else {
+    return 0
+  }
+  if (limit > 0) return Math.min(list.length, limit)
+  return list.length
+}
+
+function parseMissionCardHapticIndex(rect) {
+  if (!rect || !rect.dataset) return NaN
+  const raw = rect.dataset.hapticIndex
+  if (raw === undefined || raw === null || raw === '') return NaN
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : NaN
+}
+
+function buildMissionCardMetricsFromRects(options = {}) {
+  const {
+    scrollViewRect,
+    cardRects,
+    currentScrollTop = 0,
+    fallbackGap = 0,
+    previousMetrics = null,
+    listCount = 0
+  } = options
+
+  if (!scrollViewRect || !Array.isArray(cardRects) || !cardRects.length) {
+    return previousMetrics || null
+  }
+
+  const firstRect = cardRects[0]
+  const secondRect = cardRects[1]
+  const pitchFromPair =
+    secondRect && secondRect.top > firstRect.top ? secondRect.top - firstRect.top : 0
+  const pitch =
+    pitchFromPair ||
+    (firstRect.height || 0) + fallbackGap ||
+    (previousMetrics && previousMetrics.pitch) ||
+    1
+
+  const measuredOffset = currentScrollTop + firstRect.top - scrollViewRect.top
+  const measuredIndex = parseMissionCardHapticIndex(firstRect)
+  let firstOffset
+  if (Number.isFinite(measuredIndex) && measuredIndex === 0) {
+    firstOffset = measuredOffset
+  } else if (previousMetrics && typeof previousMetrics.firstOffset === 'number') {
+    firstOffset = previousMetrics.firstOffset
+  } else if (Number.isFinite(measuredIndex) && measuredIndex > 0) {
+    firstOffset = measuredOffset - measuredIndex * pitch
+  } else {
+    firstOffset = measuredOffset
+  }
+
+  const lastIndex = parseMissionCardHapticIndex(cardRects[cardRects.length - 1])
+  const inferredCount = Number.isFinite(lastIndex) ? lastIndex + 1 : cardRects.length
+  const cardCount = Math.max(Number(listCount) || 0, inferredCount, cardRects.length, 1)
+
+  return {
+    firstOffset,
+    pitch: pitch || 1,
+    cardHeight: firstRect.height || (previousMetrics && previousMetrics.cardHeight) || 0,
+    cardCount
+  }
+}
+
+function resolveMissionCardFocusIndex(options = {}) {
+  const {
+    scrollTop = 0,
+    metrics,
+    cardCount,
+    viewportHeight = 0,
+    navPlaceholderHeight = 0
+  } = options
+
+  if (!metrics || !metrics.pitch) return -1
+  const count = Math.max(Number(cardCount) || 0, Number(metrics.cardCount) || 0)
+  if (!count) return -1
+
+  const visibleHeight = Math.max(viewportHeight - navPlaceholderHeight, metrics.cardHeight || 0)
+  const anchorOffset = navPlaceholderHeight + visibleHeight * 0.32
+  const firstCardCenter = metrics.firstOffset + (metrics.cardHeight || metrics.pitch) / 2
+
+  let nextIndex = Math.round((scrollTop + anchorOffset - firstCardCenter) / metrics.pitch)
+  if (nextIndex < 0) nextIndex = 0
+  if (nextIndex > count - 1) nextIndex = count - 1
+  return nextIndex
+}
+
 function buildMissionCardHapticState(options = {}) {
   const {
     focusIndex = -1,
@@ -219,6 +315,9 @@ module.exports = {
   buildMissionScrollProgressState,
   buildMissionScrollPositionState,
   shouldScheduleMissionCardMeasurement,
+  getMissionCardListCount,
+  buildMissionCardMetricsFromRects,
+  resolveMissionCardFocusIndex,
   buildMissionCardHapticState,
   buildCompletedMissionLoadErrorState,
   buildMissionListErrorState,

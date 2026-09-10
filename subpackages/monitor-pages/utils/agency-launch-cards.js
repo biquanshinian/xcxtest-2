@@ -3,37 +3,36 @@
  * 数据复用首页 limit=100 规范缓存（云函数后台刷新，不直连 LL2），客户端按发射商过滤。
  */
 const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
+const {
+  applyContentLangToMission,
+  formatMissionListTimeOrUnknown
+} = require('../../../utils/launch-card-i18n.js')
+const { launchCardUiText } = require('../../../utils/locale.js')
 
-/** 发射任务列表项 → 板块卡片轻量模型（时间格式：2026年7月12日 14:30） */
+/** 发射任务列表项 → 板块卡片轻量模型（时间随 contentLang） */
 function formatAgencyLaunchCard(m) {
-  let timeText = '时间待定'
-  if (m.launchTime) {
-    const d = new Date(m.launchTime)
-    if (!isNaN(d.getTime())) {
-      timeText = d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' +
-        String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
-    }
-  }
-  const category = m.statusCategory || ''
+  const localized = applyContentLangToMission(Object.assign({}, m || {}))
+  const timeText = formatMissionListTimeOrUnknown(localized.launchTime)
+  const category = localized.statusCategory || ''
   let statusClass = 'neutral'
   if (category === 'success') statusClass = 'success'
   else if (category === 'failure' || category === 'partial') statusClass = 'failure'
   return {
-    id: m.id,
-    name: m.missionName || m.name || '未知任务',
-    rocketName: m.rocketName || '',
-    rocketImage: m.rocketImage || '',
+    id: localized.id,
+    name: localized.missionName || localized.name || launchCardUiText('unknownMission'),
+    rocketName: localized.rocketName || '',
+    rocketImage: localized.rocketImage || '',
     timeText,
-    statusText: m.status || '',
+    statusText: localized.statusBadgeText || localized.status || '',
     statusClass
   }
 }
 
-/** 按发射商匹配任务：优先 LL2 机构 id，兜底缩写（老缓存可能缺 id） */
+/** 按发射商匹配任务：有机构 id 只认 launchAgencyId；无 id 的旧入口才用缩写 */
 function matchLaunchAgency(m, agency) {
   if (!m || !agency) return false
-  if (agency.id != null && m.launchAgencyId != null) {
-    return String(m.launchAgencyId) === String(agency.id)
+  if (agency.id != null && String(agency.id).trim() !== '') {
+    return m.launchAgencyId != null && String(m.launchAgencyId) === String(agency.id)
   }
   if (agency.abbrev && m.launchAgencyAbbrev) {
     return m.launchAgencyAbbrev === agency.abbrev

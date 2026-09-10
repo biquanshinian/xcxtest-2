@@ -41,10 +41,11 @@
         src="{{milestone.prizeImage}}"
         mode="aspectFit"
       />
-      <view wx:else class="prize-emoji">👕</view>
-      <view class="prize-desc">{{milestone.description || '精美奖品一份'}}</view>
-      <view class="prize-ship-note">运费到付</view>
-      <button class="prize-claim-btn" bindtap="onShowForm">立即领取</button>
+      <view wx:else class="prize-emoji">{{milestone.prizeType === 'pro_1month' ? '👑' : '👕'}}</view>
+      <view class="prize-desc">{{milestone.description || (milestone.prizeType === 'pro_1month' ? '1个月PRO会员' : '精美奖品一份')}}</view>
+      <view class="prize-ship-note" wx:if="{{milestone.prizeType !== 'pro_1month'}}">运费到付</view>
+      <view class="prize-ship-note prize-ship-note--pro" wx:else>系统自动到账，无需填写地址</view>
+      <button class="prize-claim-btn" bindtap="onClaimOrForm" loading="{{submitting}}">{{milestone.prizeType === 'pro_1month' ? '立即到账' : '立即领取'}}</button>
     </view>
 
     <!-- 阶段4：填写地址表单 -->
@@ -85,7 +86,7 @@
     <view class="egg-stage egg-stage--done" wx:if="{{stage === 'done'}}">
       <view class="done-icon">🎊</view>
       <view class="done-title">领取成功！</view>
-      <view class="done-desc">奖品将尽快为您发出，请保持手机畅通</view>
+      <view class="done-desc">{{milestone.prizeType === 'pro_1month' ? '1个月PRO会员已到账，可在「星际通行证」查看' : '奖品将尽快为您发出，请保持手机畅通'}}</view>
       <button class="done-btn" bindtap="onClose">知道了</button>
     </view>
 

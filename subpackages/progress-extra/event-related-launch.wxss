@@ -1,0 +1,5 @@
+.event-related-mission-wrap {
+  position: relative;
+  z-index: 2;
+  margin-top: 16rpx;
+}

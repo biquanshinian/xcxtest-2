@@ -33,6 +33,7 @@
 | `channels-live.js` | `subpackages/shared/utils/` |
 | `channels-live-config-cache.js` | `subpackages/shared/utils/` |
 | `official-account-scene.js` | `subpackages/shared/utils/` |
+| `ai-chat-i18n.js` | `subpackages/shared/utils/`（仅星问出卡/欢迎区文案） |
 | `artemis-arow.js` | `subpackages/monitor-pages/utils/` |
 | `starbase-weather.js` | `subpackages/monitor-pages/utils/` |
 
@@ -59,7 +60,7 @@ node scripts/_verify_main_package.js
 
 ## 常见回归
 
-1. **Unused JS**：主包 `utils/` 存在仅被分包引用的文件 → 移到分包并删主包副本
+1. **Unused JS**：主包 `utils/` 存在仅被分包引用的文件 → 移到各消费分包本地副本并删主包文件（多包共用不可只放 `shared` 再 sync require，分享冷启动会黑屏；先例：`http-request.js`、`booster-nav.js`）
 2. **Cross-subpackage sync require**：主包 `require('subpackages/...')` → 改用 `require.async` 或把消费者挪到分包
 3. **JSON BOM**：保存 UTF-8 无 BOM；用 `_verify_main_package.js` 检查
 4. **错误相对路径**：`utils/` 内互相引用用 `./foo.js`，不要用 `../../../utils/`
@@ -110,3 +111,18 @@ node scripts/_verify_main_package.js
 ### 防回归
 
 > **禁止把主包文件加入 `code_obfuscation_config.json`。** 加固只增不减体积。仅分包内敏感算法（轨道/地图/AR）可加固。
+
+## 2026-08-12 主包安全瘦身（源码 ≤1400KB）
+
+基线约 **1715KB** → 验收约 **1370KB**（扫描线仍 1536KB，留编译余量）。
+
+| 阶 | 改动 | 要点 |
+|----|------|------|
+| 资产 | 删 `images/default-mars-avatar.png` 等死图；图资源按引用迁分包 | 零逻辑风险 |
+| 首页 | UI 组件化（splash/share/announcement/vote/carousel/road-closure）→ `index-extra`；`index-interaction` / `index-agency-sub` 用 `require.async`+`attachTo` | 避开 `index-settled-merge` |
+| 监控 | `monitor-core-sections`（空间站/星链/通告/过境）→ `monitor-pages`；canvas 经 `#monitorCoreSections` 查询 | 同 `monitor-galleries` 事件通道 |
+| 进度 | `progress-below-fold`（封路/追踪/指挥室/清单）→ `progress-extra` | 不碰 hardware / event-updates |
+| 我的 | `badge-modal` + 奖品区进 `profile-extra` | `sectionevent` 回传 |
+| 注释 | 主包大文件裁剪冗长 JSDoc（保留「不可 async」契约注释） | 不改行为 |
+
+门禁：`_audit_pack_size` / `_audit_cross_subpackage` / `_audit_requires` / `_verify_main_package`；加固名单仍仅分包敏感文件。

@@ -6,3 +6,4 @@ admin-web/dist/
 **/miniprogram_npm/
 *.min.js
 pages/search/miniprogram_npm/
+subpackages/rocket-3d/lib/

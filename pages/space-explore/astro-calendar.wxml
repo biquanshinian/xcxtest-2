@@ -3,11 +3,13 @@
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
-      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">天文日历</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">天文日历</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
 
@@ -71,7 +73,7 @@
 
     <!-- 天文事件日历 -->
     <view class="section-header">
-      <text class="section-title">2026 天象日历</text>
+      <text class="section-title">{{astroYear}} 天象日历</text>
     </view>
 
     <!-- 即将到来 -->
@@ -79,7 +81,7 @@
       <view class="sub-header-dot sub-header-dot--upcoming"></view>
       <text class="sub-header-text">即将到来 ({{upcomingEvents.length}})</text>
     </view>
-    <view class="event-card" wx:for="{{upcomingEvents}}" wx:key="date">
+    <view class="event-card" wx:for="{{upcomingEvents}}" wx:key="id">
       <view class="event-left">
         <text class="event-icon">{{item.icon}}</text>
       </view>
@@ -101,7 +103,7 @@
       <view class="sub-header-dot sub-header-dot--past"></view>
       <text class="sub-header-text">已过去 ({{pastEvents.length}})</text>
     </view>
-    <view class="event-card event-card--past" wx:for="{{pastEvents}}" wx:key="date">
+    <view class="event-card event-card--past" wx:for="{{pastEvents}}" wx:key="id">
       <view class="event-left">
         <text class="event-icon">{{item.icon}}</text>
       </view>

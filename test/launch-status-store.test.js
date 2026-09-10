@@ -134,10 +134,181 @@ test('同一历史 UUID 后出现的完整 previous 卡覆盖旧状态瘦卡', (
   assert.equal(projected.completed[0].recoveryIcons.length, 1)
 })
 
+test('后到的 previous 瘦卡不能盖掉已有完整历史卡', () => {
+  const full = {
+    id: 'done',
+    launchTime: '2026-08-19T04:01:00Z',
+    statusId: 3,
+    rocketName: '猎鹰9号',
+    padLocation: '范登堡太空军基地',
+    countryDisplay: '美国',
+    rocketImage: 'https://img/f9.png'
+  }
+  const thin = {
+    id: 'done',
+    launchTime: '2026-08-19T04:01:00Z',
+    statusId: 3,
+    rocketName: 'Unknown rocket',
+    padLocation: '未知地点',
+    _fromRecentSettled: true
+  }
+  const projected = projectLaunchRecords({
+    completed: [full, thin],
+    now: Date.parse('2026-08-19T06:00:00Z')
+  })
+  assert.equal(projected.completed.length, 1)
+  assert.equal(projected.completed[0].rocketName, '猎鹰9号')
+  assert.equal(projected.completed[0].padLocation, '范登堡太空军基地')
+  assert.equal(projected.completed[0].rocketImage, 'https://img/f9.png')
+})
+
 test('旧来源名称映射到标准优先级，重复 observation 不增加 revision', () => {
   const first = mergeLaunchObservation(null, observation(9, 300, { source: 'fetchLaunchStatuses' }))
   const repeated = mergeLaunchObservation(first, observation(9, 300, { source: 'fetchLaunchStatuses' }))
   assert.equal(first.sourcePriority, 30)
   assert.equal(repeated, first)
   assert.equal(repeated.revision, first.revision)
+})
+
+test('projectBadgeOntoMission 投影角标与分类', () => {
+  const { projectBadgeOntoMission } = require('../utils/launch-status-store.js')
+  const base = {
+    id: SKYROOT_ID,
+    name: 'Skyroot | Vikram-I Demo Flight',
+    rocketName: 'Vikram-I',
+    statusId: 1,
+    statusBadgeText: '就绪',
+    statusCategory: 'pending'
+  }
+  const projected = projectBadgeOntoMission(base, observation(6, 200))
+  assert.equal(projected.statusId, 6)
+  assert.equal(projected.statusCategory, 'inflight')
+  assert.equal(projected.statusBadgeText, '飞行中')
+  assert.equal(projected.rocketName, 'Vikram-I')
+})
+
+test('详情 Go/近窗不被更新的 list 待定盖掉', () => {
+  const detailGo = mergeLaunchObservation(null, {
+    id: 'b89ab080-66c3-4831-85a9-38d85da71d30',
+    net: '2026-08-10T19:23:31Z',
+    status: { id: 1, name: 'Go for Launch', abbrev: 'Go' },
+    source: 'detail',
+    observedAtMs: 1000
+  })
+  const listTbd = mergeLaunchObservation(detailGo, {
+    id: 'b89ab080-66c3-4831-85a9-38d85da71d30',
+    net: '2026-08-31T00:00:00Z',
+    status: { id: 2, name: 'To Be Determined', abbrev: 'TBD' },
+    source: 'list',
+    observedAtMs: 5000
+  })
+  assert.equal(listTbd.status.id, 1)
+  assert.equal(listTbd.net, '2026-08-10T19:23:31Z')
+})
+
+test('projectBadgeOntoMission 同步 formattedTime', () => {
+  const { projectBadgeOntoMission } = require('../utils/launch-status-store.js')
+  const base = {
+    id: SKYROOT_ID,
+    launchTime: '2026-08-31T00:00:00Z',
+    formattedTime: '08月31日 08:00',
+    statusId: 2,
+    statusBadgeText: '待定'
+  }
+  const projected = projectBadgeOntoMission(base, {
+    id: SKYROOT_ID,
+    net: '2026-08-10T19:23:31Z',
+    status: { id: 1, name: 'Go for Launch', abbrev: 'Go' },
+    source: 'detail',
+    observedAtMs: 1
+  })
+  assert.equal(projected.launchTime, '2026-08-10T19:23:31Z')
+  assert.match(String(projected.formattedTime), /08月1[01]日/)
+})
+
+test('applyAuthoritativeStatus：列表飞行中优先于详情就绪（NET 已过）', () => {
+  const { applyAuthoritativeStatus } = require('../utils/launch-status-store.js')
+  const enrichment = {
+    id: SKYROOT_ID,
+    name: 'Skyroot | Vikram-I Demo Flight',
+    rocketName: 'Vikram-I'
+  }
+  const listCard = {
+    id: SKYROOT_ID,
+    statusId: 6,
+    statusAbbrev: 'In Flight',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'launch_net_hourly_inflight',
+    _launchStateObservedAtMs: 200
+  }
+  const detailCard = {
+    id: SKYROOT_ID,
+    statusId: 1,
+    statusAbbrev: 'Go',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'fetchLaunchDetail_status',
+    _launchStateObservedAtMs: 400
+  }
+  const merged = applyAuthoritativeStatus(enrichment, [listCard, detailCard])
+  assert.equal(merged.statusId, 6)
+  assert.equal(merged.statusBadgeText, '飞行中')
+})
+
+test('applyAuthoritativeStatus：无时间戳的列表就绪不能压过详情飞行中', () => {
+  const { applyAuthoritativeStatus } = require('../utils/launch-status-store.js')
+  const enrichment = { id: SKYROOT_ID, name: 'Skyroot | Vikram-I Demo Flight' }
+  const staleListGo = {
+    id: SKYROOT_ID,
+    statusId: 1,
+    statusAbbrev: 'Go',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'list',
+    _launchStateObservedAtMs: 0
+  }
+  const detailInflight = {
+    id: SKYROOT_ID,
+    statusId: 6,
+    statusAbbrev: 'In Flight',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'fetchLaunchDetail_status',
+    _launchStateObservedAtMs: Date.now()
+  }
+  const merged = applyAuthoritativeStatus(enrichment, [staleListGo, detailInflight])
+  assert.equal(merged.statusId, 6)
+  assert.equal(merged.statusBadgeText, '飞行中')
+})
+
+test('projectLaunchRecords：列表按纯 NET 排，countdown 取最近未来时间', () => {
+  const { projectLaunchRecords } = require('../utils/launch-status-store.js')
+  const now = Date.parse('2026-08-10T14:45:00Z')
+  const michibiki = {
+    id: 'michibiki',
+    launchTime: '2026-08-10T19:15:00Z',
+    statusId: 2,
+    statusAbbrev: 'TBD',
+    statusBadgeText: '待定'
+  }
+  const zhuque = {
+    id: 'zhuque',
+    launchTime: '2026-08-10T23:45:00Z',
+    statusId: 1,
+    statusAbbrev: 'Go',
+    statusBadgeText: '就绪'
+  }
+  const postponed = {
+    id: 'roman',
+    launchTime: '2026-08-30T11:26:00Z',
+    statusId: 1,
+    statusAbbrev: 'Go',
+    statusBadgeText: '就绪'
+  }
+  const projected = projectLaunchRecords({
+    upcoming: [postponed, zhuque, michibiki],
+    completed: [],
+    now
+  })
+  assert.equal(projected.upcoming[0].id, 'michibiki')
+  assert.equal(projected.upcoming[1].id, 'zhuque')
+  assert.equal(projected.upcoming[2].id, 'roman')
+  assert.equal(projected.countdown && projected.countdown.id, 'michibiki')
 })

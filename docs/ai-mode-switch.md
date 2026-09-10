@@ -10,7 +10,7 @@
 
 | 资产 | 位置 | 提审时是否保留 |
 |------|------|----------------|
-| 4 个 SKILL 实现（原子接口 + 卡片组件） | `subpackages/agent-skills/` | ✅ 保留（未在 app.json 注册就不会被打包主流程，不影响审核） |
+| 4 个 SKILL 实现（原子接口 + 卡片组件） | `subpackages/agent-skills/` | ✅ 保留（已在 project.config.json `packOptions.ignore` 中忽略；注意：未注册的 subpackages 目录会被算进**主包**，所以必须靠 ignore 排除） |
 | 云端数据后端（12 个 `agent*` action） | `cloudfunctions/apiProxy/agent-actions.js` | ✅ 保留（云函数侧无需切换） |
 | 全局提示词 / 页面元数据 | `agent-config/AGENTS.md`、`agent-config/page-meta.json` | ✅ 保留 |
 | **app.json 的 `agent-skills` 分包声明** | `app.json` → `subPackages` 数组 | ❌ 提审前删除 |
@@ -33,6 +33,8 @@
 ```
 
 2. **agent 字段**：把备份文件里的 `agent` 对象整个复制到 `app.json` 顶层（与 `subPackages`、`preloadRule` 同级）。
+
+2.5 **移除打包忽略**：把 `project.config.json` → `packOptions.ignore` 里 `"subpackages/agent-skills/**"` 这一条临时删掉（提审关闭时再加回来），否则分包内容会被忽略掉。
 
 3. 开发者工具：编译模式切到「**小程序 AI 编译**」，调试基础库 ≥ 3.16.2，重新编译。
 

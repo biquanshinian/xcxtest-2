@@ -1,7 +1,25 @@
 const nasaApi = require('./nasa-api')
-const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const pageBase = require('../../utils/page-base.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { SHARE_THUMB_FALLBACK, pickShareImageUrl, pickShareDownloadSrc, ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
+
+const NASA_TABS = [
+  { key: 'mars', label: '火星探索', icon: '🌕' },
+  { key: 'moon', label: '月球探索', icon: '🌙' },
+  { key: 'universe', label: '宇宙探索', icon: '🌌' },
+  { key: 'eonet', label: '地球事件', icon: '🌍' },
+  { key: 'cad', label: '近地天体', icon: '☄️' }
+]
+
+function tabIndexFromQuery(raw) {
+  const key = String(raw || '').trim()
+  if (!key) return 0
+  const byKey = NASA_TABS.findIndex((t) => t.key === key)
+  if (byKey >= 0) return byKey
+  const n = parseInt(key, 10)
+  if (isFinite(n) && n >= 0 && n < NASA_TABS.length) return n
+  return 0
+}
 
 Page({
   behaviors: [pageBase],
@@ -11,14 +29,11 @@ Page({
     navPlaceholderHeight: 0,
     menuButtonWidth: 88,
     scrollRefreshing: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     activeTab: 0,
-    tabs: [
-      { key: 'mars', label: '火星探索', icon: '🌕' },
-      { key: 'eonet', label: '地球事件', icon: '🌍' },
-      { key: 'cad', label: '近地天体', icon: '☄️' }
-    ],
+    tabs: NASA_TABS,
 
-    // Tab 0: 火星探索
+    // Tab: 近地天体
     cadLoading: false,
     cadError: '',
     cadList: [],
@@ -26,7 +41,7 @@ Page({
     cadTimeRange: '60',
     cadSort: 'date',
 
-    // Tab 1: 地球事件
+    // Tab: 地球事件
     eonetLoading: false,
     eonetError: '',
     eonetList: [],
@@ -34,7 +49,11 @@ Page({
     eonetCategory: '',
     eonetCategories: [],
 
-    // Tab 2: 近地天体
+    // Tab: 火星探索
+    visitedMoon: false,
+    visitedUniverse: false,
+    discussReady: false,
+
     marsLoading: false,
     marsError: '',
     marsPhotos: [],
@@ -76,8 +95,9 @@ Page({
     }
   },
 
-  onLoad() {
+  onLoad(options) {
     this.initUiShell()
+    ensureShareImageOnPage(this, SHARE_THUMB_FALLBACK)
 
     let menuButtonWidth = 88
     try {
@@ -85,23 +105,48 @@ Page({
       if (rect && rect.width) menuButtonWidth = Math.max(88, Math.ceil(rect.width + 24))
     } catch (e) {}
 
+    const activeTab = tabIndexFromQuery(options && (options.tab || options.t))
     this.setData({
       menuButtonWidth,
-      marsDate: this._todayStr()
+      marsDate: this._todayStr(),
+      activeTab,
+      visitedMoon: activeTab === 1,
+      visitedUniverse: activeTab === 2
     })
-    this.loadMarsPhotos()
+    const kick = () => {
+      this._ensureTabData(activeTab)
+      if (!this.data.discussReady) this.setData({ discussReady: true })
+    }
+    if (typeof wx.nextTick === 'function') wx.nextTick(kick)
+    else setTimeout(kick, 0)
   },
 
   // ========== 导航 ==========
   // goBack inherited from pageBase,
 
   onTabTap(e) {
-    const idx = parseInt(e.currentTarget.dataset.index)
-    if (idx === this.data.activeTab) return
-    this.setData({ activeTab: idx })
-    if (idx === 0 && !this.data.marsPhotos.length && !this.data.marsLoading) this.loadMarsPhotos()
-    if (idx === 1 && !this.data.eonetList.length && !this.data.eonetLoading) this.loadEONETData()
-    if (idx === 2 && !this.data.cadList.length && !this.data.cadLoading) this.loadCADData()
+    const raw = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.index : ''
+    const idx = parseInt(raw, 10)
+    if (!isFinite(idx) || idx < 0 || idx >= NASA_TABS.length || idx === this.data.activeTab) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    const patch = { activeTab: idx }
+    if (idx === 1) patch.visitedMoon = true
+    if (idx === 2) patch.visitedUniverse = true
+    this.setData(patch)
+    this._ensureTabData(idx)
+  },
+
+  _tabKey(idx) {
+    const i = idx == null ? this.data.activeTab : idx
+    const tab = (this.data.tabs || NASA_TABS)[i]
+    return (tab && tab.key) || 'mars'
+  },
+
+  _ensureTabData(idx) {
+    const key = this._tabKey(idx)
+    if (key === 'mars' && !this.data.marsPhotos.length && !this.data.marsLoading) this.loadMarsPhotos()
+    if (key === 'eonet' && !this.data.eonetList.length && !this.data.eonetLoading) this.loadEONETData()
+    if (key === 'cad' && !this.data.cadList.length && !this.data.cadLoading) this.loadCADData()
   },
 
   /** 原生三点下拉刷新：重拉当前 Tab 的 NASA 数据（已有数据时不回退骨架） */
@@ -115,14 +160,28 @@ Page({
 
   _runNasaPullRefresh(key) {
     runPullRefresh(this, () => {
-      const idx = this.data.activeTab
-      if (idx === 1) return this.loadEONETData({ silent: this.data.eonetList.length > 0 })
-      if (idx === 2) return this.loadCADData({ silent: this.data.cadList.length > 0 })
+      const tabKey = this._tabKey()
+      if (tabKey === 'eonet') return this.loadEONETData({ silent: this.data.eonetList.length > 0 })
+      if (tabKey === 'cad') return this.loadCADData({ silent: this.data.cadList.length > 0 })
+      if (tabKey === 'moon') {
+        try {
+          const card = this.selectComponent('#nasaArtemisCard')
+          if (card && typeof card.retry === 'function') card.retry()
+        } catch (_e) {}
+        return Promise.resolve()
+      }
+      if (tabKey === 'universe') {
+        try {
+          const card = this.selectComponent('#nasaRomanCard')
+          if (card && typeof card.retry === 'function') card.retry()
+        } catch (_e) {}
+        return Promise.resolve()
+      }
       return this.loadMarsPhotos({ silent: this.data.marsPhotos.length > 0 })
     }, key)
   },
 
-  // ========== Tab 2: 近地天体 ==========
+  // ========== Tab: 近地天体 ==========
   loadCADData(opts = {}) {
     this.setData(opts.silent ? { cadError: '' } : { cadLoading: true, cadError: '' })
     return nasaApi.getCloseApproach({
@@ -149,7 +208,7 @@ Page({
     this.setData({ cadSort: val }, () => this.loadCADData())
   },
 
-  // ========== Tab 1: 地球事件 ==========
+  // ========== Tab: 地球事件 ==========
   loadEONETData(opts = {}) {
     if (this._eonetLoading) return
     this._eonetLoading = true
@@ -196,23 +255,33 @@ Page({
     })
   },
 
-  // ========== Tab 0: 火星探索 ==========
+  // ========== Tab: 火星探索 ==========
   loadMarsPhotos(loadOpts = {}) {
     if (this._marsLoading) return
     this._marsLoading = true
     this.setData(loadOpts.silent ? { marsError: '' } : { marsLoading: true, marsError: '' })
 
     const rover = this.data.marsRover
-    // 先用最新 sol 获取，如果有指定日期则用日期
-    const opts = this.data.marsDate && !this.data.marsUseSol
-      ? { earthDate: this.data.marsDate }
-      : (this.data.marsSol ? { sol: this.data.marsSol } : { earthDate: this.data.marsDate })
+    const hasExplicitSol = !!this.data.marsSol && this.data.marsUseSol
+    // 首屏 / 切车：优先 latest_photos；选日期或空结果回退日则走按日查询
+    const useLatest = !hasExplicitSol && this.data.marsRetryCount === 0 && !loadOpts.forceDate
 
-    return nasaApi.getRoverPhotos(rover, opts).then(raw => {
+    const fetchPromise = useLatest
+      ? nasaApi.getRoverLatestPhotos(rover).catch(() => {
+          const opts = this.data.marsSol
+            ? { sol: this.data.marsSol }
+            : { earthDate: this.data.marsDate || this._todayStr() }
+          return nasaApi.getRoverPhotos(rover, opts)
+        })
+      : nasaApi.getRoverPhotos(rover, hasExplicitSol
+          ? { sol: this.data.marsSol }
+          : { earthDate: this.data.marsDate || this._todayStr() })
+
+    return fetchPromise.then(raw => {
       const photos = nasaApi.parseRoverPhotos(raw)
 
-      if (photos.length === 0 && this.data.marsRetryCount < 10) {
-        // 回退一天重试
+      if (photos.length === 0 && this.data.marsRetryCount < 4) {
+        // 回退一天重试（与网络重试分开）
         const curDate = this.data.marsDate || this._todayStr()
         const prev = new Date(curDate)
         prev.setDate(prev.getDate() - 1)
@@ -222,33 +291,79 @@ Page({
           marsDate: prevStr,
           marsRetryCount: this.data.marsRetryCount + 1,
           marsUseSol: false
-        }, () => this.loadMarsPhotos())
+        }, () => this.loadMarsPhotos({ forceDate: true }))
         return
       }
 
-      // 如果有照片，更新 sol 和日期
       if (photos.length > 0) {
         this.setData({
           marsPhotos: photos,
           marsLoading: false,
+          marsError: '',
           marsRetryCount: 0,
           marsSol: String(photos[0].sol),
           marsDate: photos[0].earthDate || this.data.marsDate
         })
+        this._saveMarsPhotoCache(rover, photos)
       } else {
-        this.setData({ marsPhotos: photos, marsLoading: false, marsRetryCount: 0 })
+        this.setData({
+          marsPhotos: photos,
+          marsLoading: false,
+          marsRetryCount: 0,
+          marsError: '该日期暂无照片，请选择其他日期'
+        })
       }
       this._marsLoading = false
     }).catch(err => {
       console.error('[Mars] 请求失败:', err)
-      this.setData({ marsLoading: false, marsError: err.message || '加载失败', marsRetryCount: 0 })
       this._marsLoading = false
+      const cached = this._readMarsPhotoCache(rover)
+      if (cached && cached.photos && cached.photos.length) {
+        this.setData({
+          marsPhotos: cached.photos,
+          marsLoading: false,
+          marsError: '',
+          marsRetryCount: 0,
+          marsSol: cached.sol || '',
+          marsDate: cached.date || this.data.marsDate
+        })
+        wx.showToast({ title: '数据源缓慢，已展示缓存照片', icon: 'none' })
+        return
+      }
+      const msg = (err && err.message) || '加载失败'
+      const friendly = /超时|timeout/i.test(msg)
+        ? '请求超时，火星车数据源较慢，请稍后重试'
+        : (/domain/i.test(msg) ? '数据源域名未配置' : msg)
+      this.setData({ marsLoading: false, marsError: friendly, marsRetryCount: 0 })
     })
   },
 
+  _saveMarsPhotoCache(rover, photos) {
+    try {
+      wx.setStorage({
+        key: 'mars_photos_cache_' + rover,
+        data: {
+          photos: photos.slice(0, 30),
+          sol: String(photos[0].sol || ''),
+          date: photos[0].earthDate || '',
+          ts: Date.now()
+        }
+      })
+    } catch (e) {}
+  },
+
+  _readMarsPhotoCache(rover) {
+    try {
+      return wx.getStorageSync('mars_photos_cache_' + rover) || null
+    } catch (e) {
+      return null
+    }
+  },
+
   onMarsRoverSwitch(e) {
-    const rover = e.currentTarget.dataset.value
-    if (rover === this.data.marsRover) return
+    const rover = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.value : ''
+    if (!rover || !this.data.marsRoverInfo[rover] || rover === this.data.marsRover) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this._marsLoading = false
     this.setData({
       marsRover: rover,
@@ -267,7 +382,7 @@ Page({
       marsRetryCount: 0,
       marsUseSol: false,
       marsSol: ''
-    }, () => this.loadMarsPhotos())
+    }, () => this.loadMarsPhotos({ forceDate: true }))
   },
 
   onMarsPhotoTap(e) {
@@ -282,7 +397,9 @@ Page({
   },
 
   onRoverCoverTap() {
-    const src = this.data.marsRoverInfo[this.data.marsRover].cover
+    const info = this.data.marsRoverInfo && this.data.marsRoverInfo[this.data.marsRover]
+    const src = info && info.cover
+    if (!src) return
     wx.previewImage({ current: src, urls: [src] })
   },
 
@@ -296,37 +413,47 @@ Page({
 
   // ========== 分享 ==========
   _getShareImage() {
-    // 火星探索 Tab 用火星车封面图，通过 COS imageMogr2 裁剪为 1:1 正方形并压缩
-    // 微信朋友圈分享图要求：正方形，不超过 128KB
-    if (this.data.activeTab === 0) {
-      const cover = this.data.marsRoverInfo[this.data.marsRover].cover
-      if (cover && cover.includes('cos.ap-guangzhou.myqcloud.com')) {
-        return cover + '?imageMogr2/thumbnail/500x500!/gravity/center/crop/500x500/format/jpg/quality/80'
+    if (this._tabKey() === 'mars') {
+      const info = this.data.marsRoverInfo && this.data.marsRoverInfo[this.data.marsRover]
+      const cover = info && info.cover
+      if (cover) {
+        const picked = pickShareImageUrl({ displayImage: cover, rawImage: cover })
+        ensureShareImageOnPage(this, pickShareDownloadSrc({ displayImage: cover, rawImage: cover }))
+        return this.data.shareImage || picked
       }
-      return cover
     }
-    return ''
+    return pageShareImage(this)
+  },
+
+  _shareTabName() {
+    const tab = (this.data.tabs || NASA_TABS)[this.data.activeTab]
+    return (tab && tab.label) || 'NASA 数据中心'
+  },
+
+  _sharePath() {
+    const key = this._tabKey()
+    return key && key !== 'mars'
+      ? '/pages/nasa-data/nasa-data?tab=' + key
+      : '/pages/nasa-data/nasa-data'
   },
 
   onShareAppMessage() {
-    const tabNames = ['火星探索', '地球自然事件', '近地天体监测']
-    const tabName = tabNames[this.data.activeTab] || 'NASA 数据中心'
+    const tabName = this._shareTabName()
     const img = this._getShareImage()
     const result = {
       title: tabName + ' | NASA 数据中心 - 火星探索日志',
-      path: '/pages/nasa-data/nasa-data'
+      path: this._sharePath()
     }
     if (img) result.imageUrl = img
     return result
   },
 
   onShareTimeline() {
-    const tabNames = ['火星探索', '地球自然事件', '近地天体监测']
-    const tabName = tabNames[this.data.activeTab] || 'NASA 数据中心'
+    const tabName = this._shareTabName()
     const img = this._getShareImage()
     const result = {
       title: tabName + ' | NASA 数据中心 - 火星探索日志',
-      query: ''
+      query: this._tabKey() === 'mars' ? '' : ('tab=' + this._tabKey())
     }
     if (img) result.imageUrl = img
     return result

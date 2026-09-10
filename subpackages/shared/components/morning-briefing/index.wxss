@@ -1,3 +1,7 @@
+/* 账号胶囊：必须在组件内引入。弹窗走 root-portal，页面 apply-shared 进不来，
+   否则 tweet-stat-avatar 无尺寸，NASA/NSF 头像会撑满弹窗把胶囊挤没。 */
+@import "../../../../styles/tweet-stats-bar.wxss";
+
 /* ══ 详情页模式（/subpackages/shared/briefing 页内嵌） ══ */
 .briefing-page-body {
   display: block;
@@ -9,19 +13,43 @@
    故弹窗自带整套主题变量：深色直接定义在 .briefing-mask 上，浅色由 .briefing-mask.theme-light 覆盖
    （themeClass 由组件 JS 挂到遮罩上），彻底不依赖外部继承。 */
 .briefing-mask {
-  --color-bg-card: #1C1C1E;
-  --color-text-primary: #FFFFFF;
+  --color-bg-card: #16181C;
+  --bg-glass-popup: rgba(22, 24, 28, 0.85);
+  --color-text-primary: #F5F5F7;
   --color-text-secondary: #8E8E93;
-  --color-text-tertiary: #7C7C82;
-  --color-text-on-glass: rgba(255, 255, 255, 0.92);
-  --color-divider: rgba(255, 255, 255, 0.1);
-  --color-divider-strong: rgba(255, 255, 255, 0.14);
-  --color-divider-faint: rgba(255, 255, 255, 0.05);
-  --color-brand: #007AFF;
+  --color-text-tertiary: #6E6E73;
+  --color-text-on-glass: rgba(245, 245, 247, 0.92);
+  --color-divider: rgba(255, 255, 255, 0.08);
+  --color-divider-strong: rgba(255, 255, 255, 0.12);
+  --color-divider-faint: rgba(255, 255, 255, 0.04);
+  --color-brand: #3B82F6;
   --color-success: #34C759;
   --color-warning: #FF9500;
   --color-danger: #FF3B30;
+  --shadow-card: 0 4rpx 16rpx rgba(0, 0, 0, 0.18);
   --icon-invert: 0;
+  /* 结构类令牌（主题无关）：root-portal 取不到 page{} 的 tokens，
+     共享样式（如 styles/tweet-stats-bar.wxss 的胶囊圆角）依赖这些变量 */
+  --radius-sm: 12rpx;
+  --radius-md: 16rpx;
+  --radius-lg: 28rpx;
+  --radius-pill: 999rpx;
+  --radius-circle: 50%;
+  --space-2xs: 10rpx;
+  --space-xs: 16rpx;
+  --space-sm: 20rpx;
+  --space-md: 28rpx;
+  --space-lg: 36rpx;
+  --font-size-2xs: 18rpx;
+  --font-size-xs: 20rpx;
+  --font-size-sm: 22rpx;
+  --font-size-base: 28rpx;
+  --font-size-md: 30rpx;
+  --font-size-lg: 32rpx;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
   position: fixed;
   top: 0;
   left: 0;
@@ -42,13 +70,16 @@
 /* 浅色主题变量（须写在组件内：组件选择器与 tokens.wxss 的 .theme-light 同权重时后加载的组件样式会盖掉它） */
 .briefing-mask.theme-light {
   --color-bg-card: #FFFFFF;
+  --bg-glass-popup: rgba(255, 255, 255, 0.88);
   --color-text-primary: #1C1C1E;
   --color-text-secondary: #6E6E73;
-  --color-text-tertiary: #86868B;
+  --color-text-tertiary: #8E8E93;
   --color-text-on-glass: rgba(28, 28, 30, 0.92);
-  --color-divider: rgba(0, 0, 0, 0.08);
-  --color-divider-strong: rgba(0, 0, 0, 0.12);
+  --color-divider: rgba(0, 0, 0, 0.07);
+  --color-divider-strong: rgba(0, 0, 0, 0.1);
   --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --color-brand: #3B82F6;
+  --shadow-card: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
   --icon-invert: 1;
 }
 
@@ -62,23 +93,20 @@
   max-width: 720rpx;
   /* 整窗高度上限（mask 已加安全区内边距，此处用 vh 再收一档） */
   max-height: 70vh;
-  /* 实底卡片色（深 #1C1C1E / 浅 #FFF）：--bg-glass-strong 近全透明，
-     真机 backdrop-filter 在全屏弹层常失效会导致弹窗透底看不清 */
-  background: var(--color-bg-card, #1C1C1E);
-  backdrop-filter: blur(72rpx) saturate(220%);
-  -webkit-backdrop-filter: blur(72rpx) saturate(220%);
-  border-radius: 32rpx;
-  border: 1px solid var(--color-divider-strong);
-  box-shadow:
-    0 24rpx 80rpx rgba(0, 0, 0, 0.4),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
+  /* 磨砂弹层：不透明度较高（0.85），真机 backdrop-filter 失效时仍可读 */
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
+  border-radius: var(--radius-lg, 28rpx);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card, 0 4rpx 16rpx rgba(0, 0, 0, 0.18));
   overflow: hidden;
   animation: slideUp 0.3s ease;
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding-bottom: 12rpx;
+  padding-bottom: 16rpx;
 }
 
 @keyframes slideUp {
@@ -89,36 +117,47 @@
 /* 浅色主题：主题类挂在 briefing-mask 上（root-portal 层脱离页面根，变量继承不到），
    白卡片改用柔和投影，去掉深色内高光 */
 .theme-light .briefing-popup {
-  box-shadow: 0 24rpx 80rpx rgba(15, 23, 42, 0.16), 0 4rpx 16rpx rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-card, 0 2rpx 12rpx rgba(0, 0, 0, 0.04));
 }
 
 .popup-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 36rpx 32rpx 24rpx;
-  border-bottom: 1px solid var(--color-divider);
+  /* 原顶栏约 156rpx（40+88+28），高度缩窄三分之一 → 104rpx；左右仍 36rpx */
+  padding: 18rpx 36rpx 16rpx;
+  border-bottom: 1px solid var(--color-divider-faint);
   flex-shrink: 0;
 }
 
 .popup-title {
-  font-size: 32rpx;
+  font-size: var(--font-size-lg, 32rpx);
   font-weight: 700;
   color: var(--color-text-primary);
 }
 
-/* 可点区域 ≥ 约 44pt，整格可点避免点中空档 */
+/* 视觉 0.8（70rpx）；::after 把可点热区扩回约 88rpx，避免点空 */
 .popup-close {
   box-sizing: border-box;
   position: relative;
-  width: 88rpx;
-  height: 88rpx;
+  width: 70rpx;
+  height: 70rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 44rpx;
+  border-radius: 35rpx;
   background: var(--color-divider);
   flex-shrink: 0;
+}
+
+.popup-close::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88rpx;
+  height: 88rpx;
+  transform: translate(-50%, -50%);
 }
 
 .popup-close--hover {
@@ -126,14 +165,14 @@
 }
 
 .popup-close-icon {
-  font-size: 28rpx;
+  font-size: 22rpx;
   color: var(--color-text-secondary);
   line-height: 1;
   pointer-events: none;
 }
 
 .popup-body {
-  padding: 20rpx 32rpx 16rpx;
+  padding: 24rpx 36rpx 20rpx;
   box-sizing: border-box;
   width: 100%;
   flex-shrink: 0;
@@ -142,10 +181,11 @@
 .briefing-section {
   display: flex;
   align-items: flex-start;
-  margin-bottom: 24rpx;
-  padding: 20rpx;
+  margin-bottom: 28rpx;
+  padding: 24rpx;
   background: var(--color-divider-faint);
-  border-radius: 14rpx;
+  border: 1rpx solid var(--color-divider-faint);
+  border-radius: var(--radius-md, 16rpx);
   box-sizing: border-box;
 }
 
@@ -260,10 +300,10 @@
   border-bottom: none;
 }
 
-/* 昨日回顾：角标贴右（小程序嵌套 flex 时 space-between 常不生效，改用绝对定位） */
+/* 昨日回顾：与今日同一 flex 行（icon + left），角标绝对定位贴右，避免嵌套 main 挤偏文案 */
 .vote-history-item--briefing-yesterday {
   position: relative;
-  align-items: flex-start;
+  align-items: center;
   padding-right: 168rpx;
   box-sizing: border-box;
 }
@@ -271,20 +311,10 @@
 .vote-history-item--briefing-yesterday .vote-history-right {
   position: absolute;
   right: 0;
-  top: 16rpx;
+  top: 50%;
+  transform: translateY(-50%);
   margin-top: 0;
   margin-left: 0;
-}
-
-.vote-history-main {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
 }
 
 .vote-history-icon {
@@ -453,30 +483,97 @@
   color: var(--color-text-tertiary);
 }
 
-/* ══ 内联卡片 ══ */
-.briefing-inline {
-  margin: 0 24rpx 20rpx;
-  padding: 28rpx;
-  background: var(--color-divider-faint);
-  border-radius: 16rpx;
-  border: 1px solid var(--color-divider-faint);
+.tweet-highlight-list {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 12rpx;
+  margin: 0 0 18rpx;
+}
+
+.tweet-highlight-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 12rpx 8rpx;
+  border-radius: 12rpx;
+}
+
+.tweet-highlight-thumb {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+  background: var(--color-divider);
+  overflow: hidden;
+}
+
+.briefing-mask .tweet-stat-avatar,
+.briefing-page-body .tweet-stat-avatar {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.tweet-highlight-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tweet-highlight-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tweet-highlight-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: var(--color-text-tertiary);
+}
+
+.tweet-highlight-kw {
+  display: inline-block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #0071A9;
+  background: rgba(10, 132, 255, 0.1);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+}
+
+/* ══ 内联卡片（与 profile 页 growth-entry 卡片保持同款外观） ══ */
+.briefing-inline {
+  margin: 0 var(--space-md) var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+  display: flex;
+  align-items: center;
 }
 
 .inline-left {
   flex-shrink: 0;
   margin-right: 20rpx;
-  margin-top: 4rpx;
+  display: flex;
+  align-items: center;
 }
 
 .inline-icon {
-  font-size: 40rpx;
+  font-size: 60rpx;
 }
 
 .inline-icon-img {
-  width: 44rpx;
-  height: 44rpx;
+  width: 66rpx;
+  height: 66rpx;
 }
 
 .inline-body {
@@ -486,11 +583,11 @@
 }
 
 .inline-title {
-  font-size: 28rpx;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-primary);
   display: block;
-  margin-bottom: 10rpx;
+  margin-bottom: 4rpx;
 }
 
 .inline-summary {
@@ -500,7 +597,7 @@
 }
 
 .inline-line {
-  font-size: 24rpx;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   line-height: 1.6;
   display: block;
@@ -514,8 +611,8 @@
 }
 
 .inline-arrow {
-  font-size: 32rpx;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
   margin-left: 12rpx;
   align-self: center;

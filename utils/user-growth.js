@@ -63,7 +63,8 @@ const MILESTONE_TYPES = {
 // ══════════════════════════════════════════
 
 function loadPreferences() {
-  return storageCache.readSync(PREFS_STORAGE_KEY, getDefaultPreferences()) || getDefaultPreferences()
+  const prefs = storageCache.readSync(PREFS_STORAGE_KEY, getDefaultPreferences()) || getDefaultPreferences()
+  return migrateBriefingDefaultOff(prefs)
 }
 
 function warmUserPreferencesSync() {
@@ -74,7 +75,9 @@ function warmUserPreferencesAsync() {
   if (storageCache.isLoaded(PREFS_STORAGE_KEY)) {
     return Promise.resolve(loadPreferences())
   }
-  return storageCache.warmAsync(PREFS_STORAGE_KEY, getDefaultPreferences())
+  return storageCache.warmAsync(PREFS_STORAGE_KEY, getDefaultPreferences()).then(function (prefs) {
+    return migrateBriefingDefaultOff(prefs || getDefaultPreferences())
+  })
 }
 
 function getDefaultPreferences() {
@@ -82,19 +85,90 @@ function getDefaultPreferences() {
     rocketTypes: [],
     launchSites: [],
     astroEventTypes: [],
-    notifyMinutes: 60,
-    briefingEnabled: true,
+    /** 与设置页截图默认一致：未选型号/场站=全部，提前提醒 30 分钟 */
+    notifyMinutes: 30,
+    /** 每日简报弹窗：全员默认关闭，设置里手动打开后才弹 */
+    briefingEnabled: false,
+    /** 新用户默认带此标记；本地旧偏好缺此字段才走一次默认关闭迁移 */
+    briefingDefaultOffV1: true,
+    /** 星舰基地封路服务号通知；false=明确退订，默认接收 */
+    roadClosureAlert: true,
+    /** 事件更新关键词提醒（未写 V1 时读默认列表，避免全员快照锁死） */
+    eventAlertKeywords: [],
+    eventAlertKeywordsV1: false,
+    /** 事件更新关注账号；空=全部。仅会员在时间线生效 */
+    eventWatchSources: [],
+    /** 发射卡片等内容语言：zh（默认）| en */
+    contentLang: 'zh',
+    /** 偏好匹配用：结果模板剩余额度（云端权威，本地仅展示参考） */
+    mpResultCredits: 0,
+    mpReminderGrantedAt: 0,
     updatedAt: 0
   }
 }
 
-function savePreferences(prefs) {
-  prefs.updatedAt = Date.now()
+/** 旧版默认开启会写进本地/云端；升级后只迁移一次，避免全员继续自动弹窗 */
+function migrateBriefingDefaultOff(prefs) {
+  if (!prefs || typeof prefs !== 'object') return getDefaultPreferences()
+  if (prefs.briefingDefaultOffV1) return prefs
+  prefs.briefingEnabled = false
+  prefs.briefingDefaultOffV1 = true
+  // 只落本地，不改 updatedAt、不同步云端，避免覆盖另一台设备上已手动打开的新值
   storageCache.writeMem(PREFS_STORAGE_KEY, prefs)
   try {
     wx.setStorage({ key: PREFS_STORAGE_KEY, data: prefs, fail: function () {} })
   } catch (e) {}
-  syncPreferencesToCloud(prefs)
+  return prefs
+}
+
+function savePreferences(prefs) {
+  prefs.updatedAt = Date.now()
+  if (prefs.contentLang != null) {
+    try {
+      const locale = require('./locale.js')
+      prefs.contentLang = locale.normalizeContentLang(prefs.contentLang)
+      locale.setContentLangMem(prefs.contentLang)
+    } catch (e) {
+      prefs.contentLang = String(prefs.contentLang).toLowerCase() === 'en' ? 'en' : 'zh'
+    }
+  }
+  // delta 只给云端累加额度，本地不落盘，避免再次保存时重复 +1
+  var toCloud = prefs
+  if (prefs.mpResultCreditsDelta) {
+    toCloud = Object.assign({}, prefs)
+    try { delete prefs.mpResultCreditsDelta } catch (e2) {}
+  }
+  storageCache.writeMem(PREFS_STORAGE_KEY, prefs)
+  try {
+    wx.setStorage({ key: PREFS_STORAGE_KEY, data: prefs, fail: function () {} })
+  } catch (e) {}
+  syncPreferencesToCloud(toCloud)
+}
+
+/**
+ * 云端偏好回灌：缺 contentLang 时保留本地语言，避免旧云数据把 en 冲回默认 zh。
+ */
+function mergePreferencesFromCloud(cloudPrefs, localPrefs) {
+  const defaults = getDefaultPreferences()
+  const local = localPrefs && typeof localPrefs === 'object' ? localPrefs : {}
+  const cloud = cloudPrefs && typeof cloudPrefs === 'object' ? cloudPrefs : {}
+  const merged = Object.assign({}, defaults, local, cloud)
+  // 旧云端仍可能带着历史默认 true；未带迁移标记的不回灌，避免弹窗被重新打开
+  if (cloud.briefingDefaultOffV1 == null) {
+    merged.briefingEnabled = local.briefingEnabled === true && !!local.briefingDefaultOffV1
+    merged.briefingDefaultOffV1 = true
+  }
+  try {
+    const locale = require('./locale.js')
+    if (cloud.contentLang == null || cloud.contentLang === '') {
+      merged.contentLang = locale.normalizeContentLang(local.contentLang || defaults.contentLang)
+    } else {
+      merged.contentLang = locale.normalizeContentLang(cloud.contentLang)
+    }
+  } catch (e) {
+    merged.contentLang = String(merged.contentLang || 'zh').toLowerCase() === 'en' ? 'en' : 'zh'
+  }
+  return merged
 }
 
 function syncPreferencesToCloud(prefs) {
@@ -109,25 +183,16 @@ function syncPreferencesToCloud(prefs) {
 
 /**
  * 后台「全局配置中心」每日太空简报开关（global_config.main.enableBriefing）。
- * 带 10 分钟内存缓存：此前每次实时读库，简报入口多、读库量大；
- * 关简报是极低频运营操作，10 分钟内生效完全够用
+ * 走 feature-flags 的 global_config/main 共享缓存（5 分钟 TTL + inflight 去重），
+ * 与直播/视频等开关共用同一次读库，不再单独发起查询
  */
-var _briefingEnabledCache = { value: null, expireAt: 0 }
-var BRIEFING_ENABLED_CACHE_TTL = 10 * 60 * 1000
-
 function isBriefingGloballyEnabled() {
   if (!wx.cloud || !wx.cloud.database) {
     return Promise.resolve(true)
   }
-  if (_briefingEnabledCache.value !== null && Date.now() < _briefingEnabledCache.expireAt) {
-    return Promise.resolve(_briefingEnabledCache.value)
-  }
-  var db = wx.cloud.database()
-  return db.collection('global_config').where({ _id: 'main' }).limit(1).get().then(function (res) {
-    var cfg = res.data && res.data[0]
-    var enabled = cfg ? (cfg.enableBriefing !== false) : true
-    _briefingEnabledCache = { value: enabled, expireAt: Date.now() + BRIEFING_ENABLED_CACHE_TTL }
-    return enabled
+  var featureFlags = require('./feature-flags.js')
+  return featureFlags.fetchMainConfig().then(function (cfg) {
+    return cfg && cfg._id ? (cfg.enableBriefing !== false) : true
   }).catch(function () {
     return true
   })
@@ -353,9 +418,9 @@ function backfillTimeline() {
 
   var newEntries = []
 
-  // 从签到数据回填
+  // 从签到数据回填（读 storage，避免主包依赖已下沉的 checkin 模块）
   try {
-    var checkinData = require('./checkin.js').warmCheckinStoreSync()
+    var checkinData = storageCache.readMemOrSync('_checkin_data', null)
     if (checkinData && checkinData.checkinHistory && checkinData.checkinHistory.length > 0) {
       var firstDate = checkinData.checkinHistory[0]
       newEntries.push({
@@ -409,7 +474,7 @@ function backfillTimeline() {
 
   // 从问答数据回填
   try {
-    var quizData = require('./space-quiz.js').warmQuizStoreSync()
+    var quizData = storageCache.readMemOrSync('_space_quiz_data', null)
     if (quizData && quizData.totalAnswered > 0) {
       newEntries.push({
         type: 'FIRST_QUIZ',
@@ -450,6 +515,7 @@ module.exports = {
   // 偏好
   loadPreferences: loadPreferences,
   savePreferences: savePreferences,
+  mergePreferencesFromCloud: mergePreferencesFromCloud,
   syncPreferencesToCloud: syncPreferencesToCloud,
   getDefaultPreferences: getDefaultPreferences,
   warmUserPreferencesSync: warmUserPreferencesSync,

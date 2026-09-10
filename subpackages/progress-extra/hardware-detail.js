@@ -8,8 +8,14 @@ const {
 } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation, translateTextsSmart, isMostlyChinese } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  isLocalSharePath,
+  pickHardwareShareImageUrl,
+  pickHardwareShareSourceForDownload
+} = require('./utils/hardware-share-image.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -56,16 +62,29 @@ Page({
     navTitle: '硬件详情',
     testsTranslated: false,
     testsTranslating: false,
-    descI18n: { testNotes: [] }
+    descI18n: { testNotes: [] },
+    isFavorited: false,
+    favAnimate: false,
+    shareImage: ''
   },
 
-  /** 测试记录备注「翻译/原文」（NSF notesEn 为英文原文） */
+  /** 测试记录备注「翻译/原文」（优先云端 notesZh；未汉化时按需机翻） */
   onToggleTestsTranslate() {
     if (this.data.testsTranslating) return
     const tests = this.data.tests || []
     const fields = []
     tests.forEach((t, i) => {
-      if (t && t.notesEn) fields.push({ path: 'descI18n.testNotes[' + i + ']', text: t.notesEn })
+      if (!t) return
+      // 已有中文 notesZh 时：点「原文」切回 notesEn；点「翻译」显示 notesZh
+      if (t.notesZh && isMostlyChinese(t.notesZh)) {
+        fields.push({
+          path: 'descI18n.testNotes[' + i + ']',
+          text: t.notesEn || t.notesZh,
+          zh: t.notesZh
+        })
+        return
+      }
+      if (t.notesEn) fields.push({ path: 'descI18n.testNotes[' + i + ']', text: t.notesEn })
     })
     if (!fields.length) return
     togglePageTranslation(this, {
@@ -73,6 +92,47 @@ Page({
       loadingKey: 'testsTranslating',
       fields
     })
+  },
+
+  /**
+   * 详情打开时：简介/测试备注仍是英文则自动机翻一次（覆盖云端尚未同步到的新增载具）
+   */
+  async _autoLocalizeDetail() {
+    const vehicle = this.data.vehicle
+    const tests = this.data.tests || []
+    const jobs = []
+    if (vehicle && vehicle.notesEn && !isMostlyChinese(vehicle.notesZh)) {
+      jobs.push({ kind: 'vehicle', text: vehicle.notesEn })
+    }
+    const testIdx = []
+    for (let i = 0; i < tests.length; i++) {
+      const t = tests[i]
+      if (!t || !t.notesEn || isMostlyChinese(t.notesZh)) continue
+      testIdx.push(i)
+      jobs.push({ kind: 'test', index: i, text: t.notesEn })
+    }
+    if (!jobs.length) return
+    try {
+      const zhList = await translateTextsSmart(jobs.map((j) => j.text))
+      const patch = {}
+      let testsChanged = false
+      const nextTests = tests.slice()
+      for (let j = 0; j < jobs.length; j++) {
+        const zh = String((zhList && zhList[j]) || '').trim()
+        if (!zh || !isMostlyChinese(zh)) continue
+        if (jobs[j].kind === 'vehicle') {
+          patch['vehicle.notesZh'] = zh
+        } else {
+          const idx = jobs[j].index
+          nextTests[idx] = Object.assign({}, nextTests[idx], { notesZh: zh })
+          testsChanged = true
+        }
+      }
+      if (testsChanged) patch.tests = nextTests
+      if (Object.keys(patch).length) this.setData(patch)
+    } catch (e) {
+      // 自动汉化失败时保留英文，不打断详情
+    }
   },
 
   async onLoad(options) {
@@ -83,6 +143,7 @@ Page({
     })
     const id = Number(options && options.id)
     this._vehicleId = id
+    if (id || id === 0) syncFavoriteState(this, 'hardware', id)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'starship_hardware', '星舰硬件设施')
@@ -97,6 +158,11 @@ Page({
       return
     }
     this.loadDetail(id)
+  },
+
+  onShow() {
+    const vid = (this.data.vehicle && this.data.vehicle.id) || this._vehicleId
+    if (vid != null && String(vid) !== '') syncFavoriteState(this, 'hardware', vid)
   },
 
   async loadDetail(id) {
@@ -120,9 +186,13 @@ Page({
         loading: false,
         errorMessage: '',
         vehicle,
+        isFavorited: isFavorite('hardware', vehicle.id),
         navTitle: vehicle.name
       })
-      this.loadTests(id)
+      this._syncShareImage(vehicle)
+      await this.loadTests(id)
+      await this._autoLocalizeDetail()
+      this._preferChineseNotes()
     } catch (e) {
       this.setData({ loading: false, errorMessage: '数据加载失败，请稍后重试' })
     }
@@ -143,6 +213,25 @@ Page({
     }
   },
 
+  /** 有中文简介/备注时默认展示中文（按钮显示「原文」） */
+  _preferChineseNotes() {
+    const vehicle = this.data.vehicle
+    const tests = this.data.tests || []
+    const patch = {}
+    const testNotes = []
+    let anyZh = !!(vehicle && isMostlyChinese(vehicle.notesZh))
+    for (let i = 0; i < tests.length; i++) {
+      const t = tests[i]
+      const zh = t && isMostlyChinese(t.notesZh) ? t.notesZh : ''
+      testNotes[i] = zh
+      if (zh) anyZh = true
+    }
+    if (!anyZh) return
+    patch.testsTranslated = true
+    patch.descI18n = { testNotes }
+    this.setData(patch)
+  },
+
   onHeroImageError() {
     const vehicle = this.data.vehicle
     if (!vehicle) return
@@ -155,6 +244,7 @@ Page({
     const fallback = getFallbackImage(vehicle.category)
     if (vehicle.displayImage === fallback) return
     this.setData({ 'vehicle.displayImage': fallback })
+    this._syncShareImage(Object.assign({}, vehicle, { displayImage: fallback }))
   },
 
   onCopyVideoLink(e) {
@@ -186,23 +276,99 @@ Page({
     return `SpaceX ${v.name} · ${v.statusZh} | 火星探索日志`
   },
 
+  _shareImageOpts(vehicle) {
+    const v = vehicle || this.data.vehicle || {}
+    return {
+      rawImage: v.rawImage || '',
+      displayImage: v.displayImage || ''
+    }
+  },
+
+  _syncShareImage(vehicle) {
+    const opts = this._shareImageOpts(vehicle)
+    const url = pickHardwareShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickHardwareShareSourceForDownload(opts))
+  },
+
+  /** 网络图 / cloud:// 落到本地，规避朋友圈吃不下 fileID、webp */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
   _buildShareImage() {
-    const v = this.data.vehicle
-    return (v && v.displayImage) || ''
+    return this.data.shareImage || pickHardwareShareImageUrl(this._shareImageOpts())
+  },
+
+  onToggleFavorite() {
+    const vehicle = this.data.vehicle
+    if (!vehicle || vehicle.id == null) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleFavorite({
+      type: 'hardware',
+      id: vehicle.id,
+      title: vehicle.name || '硬件',
+      subtitle: vehicle.statusZh || vehicle.typeZh || '',
+      imageUrl: vehicle.displayImage || vehicle.rawImage || '',
+      category: 'hardware'
+    })
+    pulseFavAnimate(this, favorited)
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {
+    const id = this._vehicleId
+    if (id == null || id === '' || Number.isNaN(Number(id))) {
+      return {
+        title: this._buildShareTitle(),
+        path: '/subpackages/progress-extra/hardware-list',
+        imageUrl: this._buildShareImage()
+      }
+    }
     return {
       title: this._buildShareTitle(),
-      path: withShareStampPath(`/subpackages/progress-extra/hardware-detail?id=${this._vehicleId}`, this),
+      path: withShareStampPath(`/subpackages/progress-extra/hardware-detail?id=${encodeURIComponent(id)}`, this),
       imageUrl: this._buildShareImage()
     }
   },
 
   onShareTimeline() {
+    const id = this._vehicleId
+    if (id == null || id === '' || Number.isNaN(Number(id))) {
+      return {
+        title: this._buildShareTitle(),
+        query: '',
+        imageUrl: this._buildShareImage()
+      }
+    }
     return {
       title: this._buildShareTitle(),
-      query: withShareStampQuery(`id=${this._vehicleId}`, this),
+      query: withShareStampQuery(`id=${encodeURIComponent(id)}`, this),
       imageUrl: this._buildShareImage()
     }
   }

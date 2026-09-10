@@ -1,0 +1,13 @@
+---
+description: 首页倒计时重叠窗口副卡规则：仅窗口重叠显示，主卡落库后排队升迁
+globs: pages/index/**/*,utils/countdown-window-machine.js,utils/index-launch-state.js,subpackages/index-extra/utils/index-live-settle.js
+alwaysApply: false
+---
+
+# 倒计时重叠窗口副卡
+
+- **仅重叠才显示**：副卡只在与主倒计时任务发射窗口 `[NET, holdUntil]` 相交时出现；无 `windowEnd` 时 holdUntil = NET+30m。禁止用「下一条发射」强行撑副卡。
+- **主卡落库升迁**：主发射窗口探明终态/飞行中落库后，下一条未决任务顶上主倒计时面板。
+- **副卡再排队**：主卡换人后，按**新主卡**再查下一条窗口重叠任务；有则副卡显示该条，无则副卡消失。
+- **依次排队**：A 主 + B 副 → A 落库 → B 升主 → 若 C 与 B 重叠则副卡变 C，否则隐藏。
+- 规则源：`utils/countdown-window-machine.js` 的 `resolveOverlapSideMission`；页面经 `_syncCountdownOverlapSideCard` 在 tick / 落库切任务 / scrub / refilter 后刷新。

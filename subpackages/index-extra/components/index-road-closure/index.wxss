@@ -1,0 +1,217 @@
+.road-closure-host {
+  margin: var(--space-md) 0;
+}
+.road-closure-host--pressed {
+  opacity: 0.82;
+}
+
+.road-closure-banner {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 12rpx 16rpx 12rpx 0;
+  border-radius: 18rpx;
+  background: rgba(255, 149, 0, 0.08);
+  border: 1rpx solid rgba(255, 149, 0, 0.22);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.road-closure-rail {
+  flex-shrink: 0;
+  width: 6rpx;
+  align-self: stretch;
+  background: linear-gradient(180deg, #FFC56B 0%, #FF9F0A 55%, #E67700 100%);
+  border-radius: 18rpx 0 0 18rpx;
+}
+
+.road-closure-side {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
+  min-width: 0;
+  padding-left: 4rpx;
+}
+
+.road-closure-chip {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.road-closure-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #FF9F0A;
+  box-shadow: 0 0 8rpx rgba(255, 159, 10, 0.65);
+  animation: roadClosureDot 1.8s ease-in-out infinite;
+}
+
+.road-closure-chip-text {
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 3rpx;
+  color: #FFB347;
+  line-height: 1.2;
+}
+
+.road-closure-source {
+  max-width: 140rpx;
+  font-size: 18rpx;
+  color: rgba(255, 179, 71, 0.62);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.road-closure-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
+}
+
+.road-closure-headline {
+  font-size: 22rpx;
+  font-weight: 600;
+  letter-spacing: 0.2rpx;
+  color: #FFB347;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.road-closure-ticker {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 48rpx;
+  border-radius: 12rpx;
+  background: #1A1612;
+  box-shadow: inset 0 1rpx 0 rgba(255, 197, 107, 0.12);
+  overflow: hidden;
+}
+
+.road-closure-ticker-probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 24rpx;
+  font-weight: 500;
+  letter-spacing: 0.4rpx;
+  line-height: 48rpx;
+}
+
+.road-closure-ticker-track {
+  display: inline-flex;
+  align-items: center;
+  height: 48rpx;
+  width: max-content;
+  padding: 0 16rpx;
+  box-sizing: border-box;
+}
+.road-closure-ticker-track:not(.is-scrolling) {
+  width: 100%;
+  max-width: 100%;
+}
+.road-closure-ticker-track:not(.is-scrolling) .road-closure-ticker-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.road-closure-ticker-track.is-scrolling {
+  padding: 0;
+  width: max-content;
+  max-width: none;
+  will-change: transform;
+  backface-visibility: hidden;
+  animation-name: roadClosureMarquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.road-closure-ticker-item {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 500;
+  letter-spacing: 0.4rpx;
+  color: #FFC56B;
+  line-height: 48rpx;
+  white-space: nowrap;
+}
+
+.road-closure-ticker-track.is-scrolling .road-closure-ticker-item {
+  padding: 0 4rpx;
+}
+
+.road-closure-sep {
+  flex-shrink: 0;
+  width: 8rpx;
+  height: 8rpx;
+  margin: 0 28rpx;
+  border-radius: 50%;
+  background: rgba(255, 197, 107, 0.45);
+}
+
+.road-closure-ticker-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24rpx;
+  z-index: 1;
+  pointer-events: none;
+}
+.road-closure-ticker-fade--left {
+  left: 0;
+  background: linear-gradient(90deg, #1A1612 0%, rgba(26, 22, 18, 0) 100%);
+}
+.road-closure-ticker-fade--right {
+  right: 0;
+  background: linear-gradient(270deg, #1A1612 0%, rgba(26, 22, 18, 0) 100%);
+}
+
+.road-closure-arrow {
+  flex-shrink: 0;
+  font-size: 34rpx;
+  font-weight: 300;
+  color: rgba(255, 179, 71, 0.7);
+  line-height: 1;
+  padding-bottom: 2rpx;
+}
+
+.theme-light .road-closure-banner {
+  background: rgba(255, 149, 0, 0.10);
+  border-color: rgba(201, 122, 18, 0.28);
+}
+.theme-light .road-closure-chip-text,
+.theme-light .road-closure-headline {
+  color: #C97A12;
+}
+.theme-light .road-closure-source {
+  color: rgba(201, 122, 18, 0.7);
+}
+.theme-light .road-closure-arrow {
+  color: rgba(201, 122, 18, 0.75);
+}
+
+@keyframes roadClosureDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.72); }
+}
+
+@keyframes roadClosureMarquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}

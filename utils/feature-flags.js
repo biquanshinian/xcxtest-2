@@ -13,12 +13,16 @@ let _inflight = null
  * @param {boolean} [forceRefresh]
  * @returns {Promise<Object>}
  */
-function fetchMainConfig(forceRefresh) {
-  const now = Date.now()
-  if (!forceRefresh && _cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
-  if (_inflight) return _inflight
-  if (!wx.cloud || !wx.cloud.database) return Promise.resolve(_cache || {})
-  _inflight = wx.cloud.database()
+function _fetchMainConfigOnce(opts) {
+  // allowStaleFallback=false（force 失败）：拒绝回落旧缓存，供 failClosed 入口使用
+  const allowStaleFallback = !opts || opts.allowStaleFallback !== false
+  if (!wx.cloud || !wx.cloud.database) {
+    if (!allowStaleFallback) {
+      return Promise.reject(new Error('GLOBAL_CONFIG_UNAVAILABLE'))
+    }
+    return Promise.resolve(_cache || {})
+  }
+  return wx.cloud.database()
     .collection('global_config')
     .doc('main')
     .get()
@@ -39,8 +43,24 @@ function fetchMainConfig(forceRefresh) {
           _cacheAt = Date.now()
           return _cache
         })
-        .catch(() => _cache || {})
+        .catch((err) => {
+          if (!allowStaleFallback) {
+            return Promise.reject(err || new Error('GLOBAL_CONFIG_FETCH_FAILED'))
+          }
+          return _cache || {}
+        })
     })
+}
+
+function fetchMainConfig(forceRefresh) {
+  const now = Date.now()
+  if (!forceRefresh && _cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
+  // forceRefresh：等当前 inflight 结束后再打一枪，避免吞掉强制刷新
+  if (_inflight) {
+    if (!forceRefresh) return _inflight
+    return _inflight.then(() => fetchMainConfig(true)).catch(() => fetchMainConfig(true))
+  }
+  _inflight = _fetchMainConfigOnce({ allowStaleFallback: !forceRefresh })
     .finally(() => { _inflight = null })
   return _inflight
 }
@@ -54,22 +74,26 @@ function getCachedMainConfig() {
  * 单个开关是否开启。字段缺省视为开启（!== false），
  * 与 enableBriefing/enableEventVideo 等既有全局开关语义一致。
  * @param {String} field 如 'enableLiveWatch' / 'enablePublishPanel' / 'enableLunarWishes'
- * @param {{ failClosed?: boolean }} [options]
+ * @param {{ failClosed?: boolean, defaultOff?: boolean }} [options]
  *   failClosed=true：读库失败或拿不到 main 配置时视为关闭（用于需彻底隐藏的入口）
+ *   defaultOff=true：字段缺省视为关闭（=== true 才开启），用于「默认关闭、后台显式开启」的新功能，
+ *     与后台管理端 enableMissionSim 等字段的读取语义保持一致
  * @returns {Promise<Boolean>}
  */
 function isFeatureEnabled(field, options) {
   const failClosed = !!(options && options.failClosed)
+  const defaultOff = !!(options && options.defaultOff)
   return fetchMainConfig()
     .then((cfg) => {
       if (failClosed && (!cfg || !cfg._id)) return false
+      if (defaultOff) return cfg[field] === true
       return cfg[field] !== false
     })
     .catch(() => !failClosed)
 }
 
 /**
- * 过审相关「可播视频」是否允许（事件视频 / 世界杯 / 背景 mp4 / video-player）。
+ * 过审相关「可播视频」是否允许（事件视频 / 背景 mp4 / video-player）。
  * failClosed：读不到配置视为关闭，避免送审时露出播放控件。
  * @returns {Promise<Boolean>}
  */
@@ -100,10 +124,32 @@ function isLiveEntryAllowed() {
     .catch(() => false)
 }
 
+function _orbitPanoOnFromCfg(cfg) {
+  if (!cfg || !cfg._id) return false
+  if (cfg.enableOrbitPano === false) return false
+  if (cfg.orbitPanoEnabled === false) return false
+  return true
+}
+
+/**
+ * 任务头图 / 设施图「环绕全景」过审开关（enableOrbitPano）。
+ * failClosed：读不到 main 视为关闭，避免审核分享/单页模式露出 360 入口。
+ * 字段缺省视为开启（!== false）；一键过审写入 false。
+ * @param {boolean} [forceRefresh]
+ * @returns {Promise<Boolean>}
+ */
+function isOrbitPanoEnabled(forceRefresh) {
+  if (forceRefresh) {
+    return fetchMainConfig(true).then(_orbitPanoOnFromCfg).catch(() => false)
+  }
+  return fetchMainConfig().then(_orbitPanoOnFromCfg).catch(() => false)
+}
+
 module.exports = {
   isFeatureEnabled,
   isPlaybackAllowed,
   isLiveEntryAllowed,
+  isOrbitPanoEnabled,
   fetchMainConfig,
   getCachedMainConfig
 }

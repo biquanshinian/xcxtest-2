@@ -1,6 +1,8 @@
 /* spacecraft-detail.wxss — 飞船构型详情页（暗色毛玻璃，与监控中心一致） */
+@import "./styles/fav-btn.wxss";
+
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -9,7 +11,7 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
 }
 
@@ -18,21 +20,32 @@ page {
 }
 
 .detail-container {
-  padding: 32rpx;
+  padding: var(--space-xl) var(--space-lg);
   box-sizing: border-box;
 }
 
 .glass-card {
-  background: rgba(18, 20, 24, 0.62);
-  backdrop-filter: blur(28rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
 }
 
 .detail-card {
-  padding: 28rpx;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 全局 .glass-card 自带 overflow:hidden，会裁掉头图悬浮卡的横向出框与毛玻璃叠层/投影；
+ * 卡内其余子元素（stats-grid、hero-wrap 等）各自带圆角或自裁剪，不依赖卡片裁剪，放开安全 */
+.detail-card.glass-card {
+  overflow: visible;
+}
+
+/* 头图出框：横向 -52rpx 落到屏边 20rpx；顶部抵消卡内上内边距，贴齐白卡顶沿 */
+.detail-card .hero-float--flush {
+  margin-top: calc(-1 * var(--space-lg));
+  margin-left: -52rpx;
+  margin-right: -52rpx;
 }
 
 /* ── 加载 / 错误 ── */
@@ -75,26 +88,26 @@ page {
   border-radius: 999rpx;
   font-size: 28rpx;
   color: #fff;
-  background: linear-gradient(135deg, #0a84ff, #5ac8fa);
+  background: var(--color-brand);
   border: none;
 }
 
 /* ── Hero ── */
+/* 圆角与 hero-float-card 对齐（同特异性防止压过全局类）；下边距交给 hero-float 骨架 */
 .hero-wrap {
   position: relative;
   width: 100%;
   height: 360rpx;
-  border-radius: 24rpx;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-bottom: 28rpx;
-  background: #131313;
+  background: var(--color-bg-elevated);
 }
 
 .hero-image {
   width: 100%;
   height: 100%;
-  border-radius: 24rpx;
-  background: #131313;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
   opacity: 0;
   transform: scale(1.02);
   transition: opacity 0.36s ease, transform 0.36s ease;
@@ -108,7 +121,7 @@ page {
 .hero-image--placeholder {
   opacity: 1;
   transform: none;
-  background: radial-gradient(circle at center, rgba(191, 90, 242, 0.12), rgba(19, 19, 19, 1) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.12), rgba(19, 19, 19, 1) 72%);
 }
 
 /* 仅底部渐变收边，不再叠信息浮层（与火箭型号详情页一致） */
@@ -118,7 +131,7 @@ page {
   left: 0;
   right: 0;
   height: 120rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.88));
 }
 
 /* 信息头：名称/状态/徽标在头图下方 */
@@ -126,9 +139,34 @@ page {
   margin-bottom: 28rpx;
 }
 
+.hero-status-badge {
+  position: absolute;
+  top: 20rpx;
+  left: 20rpx;
+  z-index: 2;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.hero-status-badge--active {
+  color: #30d158;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(48, 209, 88, 0.45);
+}
+
+.hero-status-badge--inactive {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
 .hero-name-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16rpx;
 }
@@ -184,9 +222,9 @@ page {
   padding: 6rpx 18rpx;
   border-radius: 999rpx;
   font-size: 22rpx;
-  color: #bf5af2;
-  background: rgba(191, 90, 242, 0.15);
-  border: 1px solid rgba(191, 90, 242, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 /* 发射商跳转按钮：全局统一的蓝色渐变胶囊样式（同族谱/型号详情页 info-tag--link） */
@@ -199,8 +237,8 @@ page {
   font-size: 22rpx;
   font-weight: 500;
   color: #ffffff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  box-shadow: 0 4rpx 12rpx rgba(0, 122, 255, 0.35);
+  background: var(--color-brand);
+  box-shadow: 0 4rpx 12rpx rgba(59, 130, 246, 0.35);
 }
 .hero-agency-btn:active {
   opacity: 0.7;
@@ -227,7 +265,6 @@ page {
   padding: 22rpx 8rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stat-value {
@@ -322,7 +359,7 @@ page {
 .desc-label {
   font-size: 24rpx;
   font-weight: 600;
-  color: #5ac8fa;
+  color: var(--color-brand);
 }
 
 .desc-text {
@@ -357,7 +394,7 @@ page {
 
 .link-url {
   font-size: 22rpx;
-  color: rgba(90, 200, 250, 0.85);
+  color: rgba(59, 130, 246, 0.85);
   word-break: break-all;
 }
 
@@ -375,8 +412,6 @@ page {
 }
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .loading-text {
   color: var(--color-text-secondary);
@@ -395,7 +430,7 @@ page {
   background: #E8E8ED;
 }
 .theme-light .hero-image--placeholder {
-  background: radial-gradient(circle at center, rgba(191, 90, 242, 0.1), #E8E8ED 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.1), #E8E8ED 72%);
 }
 /* hero-gradient 压在飞船照片上，保持深色收边 */
 .theme-light .hero-name {
@@ -404,19 +439,18 @@ page {
 .theme-light .hero-sub {
   color: var(--color-text-secondary);
 }
-.theme-light .hero-status--inactive {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+.theme-light .hero-status-badge--inactive {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 .theme-light .hero-badge {
-  color: #8944AB;
-  background: rgba(191, 90, 242, 0.12);
-  border: 1px solid rgba(191, 90, 242, 0.25);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 .theme-light .stat-card {
   background: rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--color-divider);
 }
 .theme-light .stat-value {
   color: var(--color-text-primary);
@@ -444,7 +478,7 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .desc-label {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .desc-text {
   color: var(--color-text-primary);
@@ -457,7 +491,7 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .link-url {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .data-source {
   color: var(--color-text-tertiary);

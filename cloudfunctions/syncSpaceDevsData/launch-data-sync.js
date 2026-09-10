@@ -1,12 +1,23 @@
 /**
- * 将 space_devs_cache 中的 upcoming 发射任务同步到 launch_data，
- * 供 sendLaunchReminder（B 通道服务号 + 偏好匹配）扫窗使用。
+ * 将 space_devs_cache upcoming 同步到 launch_data（syncSpaceDevsData 副本）。
  *
- * 数据源：syncLaunches 写入的 api_cache_/launches/upcoming/_…_slim_v6
- * （小时级 syncLaunchNetHourly 会就地 patch 同文档的 net/window/status）
- * 目标字段：id、missionName、rocketName、windowStart、padName、recoveryMethod、site
+ * ⚠ 本文件与 cloudfunctions/sendLaunchReminder/launch-data-sync.js 为同源双副本：
+ * 除顶部 db 初始化方式外必须逐字一致（云函数目录间无法共享代码）。
+ * 改动任意一份时，必须同步另一份，否则会重现「字段互相覆盖 / 保留期不一致」的数据漂移。
+ *
+ * launch_data 字段为两侧消费方的并集：
+ * - 提醒链路（sendLaunchReminder）：missionName/rocketNameZh/statusId/netPrecision/netChangePending…
+ * - 统计链路（getLaunchStats 兜底源）：rocketConfigName / launchAgencyId
  */
 const { db } = require('./shared.js')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const { localizeMissionTitle, resolveLaunchMissionOverride } = require('./mission-title-i18n.js')
+const { translateAgencyName } = require('./agency-name-i18n.js')
+
+/** 与 sync meta 一起存；升版可强制跑一轮回填（v3：补 rocketConfigName/launchAgencyId/netPrecision） */
+const LAUNCH_DATA_SCHEMA = 3
+/** NET 变动满此时长（提前或延期）→ 标记 netChangePending，与首页改期弹窗同口径 */
+const NET_CHANGE_DELAY_MS = 60 * 1000
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const SPACE_DEVS_CACHE = 'space_devs_cache'
@@ -19,6 +30,8 @@ const UPCOMING_PARAMS = {
   ordering: 'net'
 }
 const UPCOMING_PATH = '/launches/upcoming/'
+// 当前云端写入的是 _slim_v6，放最前确保第 1 次 doc 读即命中；
+// 旧后缀仅作历史兜底（此前漏掉 v6 导致每个 tick 白读 6 个 key 后 miss，再兜底全量同步）
 const CANDIDATE_SUFFIXES = ['_slim_v6', '_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
 
 function sortedParamsString(params) {
@@ -31,43 +44,68 @@ function sortedParamsString(params) {
   return JSON.stringify(sorted)
 }
 
-async function readLaunchResultsFromCache(urlPath, baseParams) {
+/** 只读主缓存文档（1 次读），批量分片文档留给 readResultsFromCacheDoc 按需读取 */
+async function readMainCacheDoc(urlPath, baseParams) {
   const sortedParams = sortedParamsString(baseParams)
   const cacheCollection = db.collection(SPACE_DEVS_CACHE)
-  let cacheKey = null
-  let doc = null
 
   for (const sfx of CANDIDATE_SUFFIXES) {
     const key = `api_cache_${urlPath}_${sortedParams}${sfx}`
     const d = await cacheCollection.doc(key).get().catch(() => null)
     if (d && d.data && d.data.data) {
-      cacheKey = key
-      doc = d
-      break
+      return { cacheKey: key, doc: d }
     }
   }
-  if (!doc || !doc.data || !doc.data.data) return []
+  return { cacheKey: null, doc: null }
+}
 
+/** 主文档的代际签名：缓存内容更新时间戳变化 = 需要重新全量同步 */
+function cacheGenerationSignature(cacheKey, doc) {
+  const wrap = (doc && doc.data) || {}
+  const updatedAtMs =
+    Number(wrap.updatedAtMs) ||
+    Number(wrap.timestamp) ||
+    (wrap.updatedAt instanceof Date ? wrap.updatedAt.getTime() : Number(wrap.updatedAt)) ||
+    0
+  return `${cacheKey}:${updatedAtMs}`
+}
+
+async function readResultsFromCacheDoc(cacheKey, doc) {
+  if (!doc || !doc.data || !doc.data.data) return []
+  const cacheCollection = db.collection(SPACE_DEVS_CACHE)
   const apiData = doc.data.data
   let allResults = []
-  // 分批写入主文档标记为 isBatched（shared.js / _legacy.js saveToCloudDB），
-  // 历史上也可能出现 isBatch；再兜底「results 为空但 count>0」的分批情形。
-  // 三者都要识别，否则只读到空的 results，扫窗会漏掉全部发射任务。
-  const isBatched = !!(apiData.isBatched || apiData.isBatch)
-    || (Array.isArray(apiData.results) && apiData.results.length === 0 && Number(apiData.count) > 0)
+
+  // 分批标记两种历史写法：主文档 isBatched + batchKeys（_legacy 写法）/ isBatch（旧写法）
+  const isBatched = !!(apiData.isBatched || apiData.isBatch) ||
+    (Array.isArray(apiData.results) && apiData.results.length === 0 && Number(apiData.count) > 0)
 
   if (isBatched) {
-    let batchIdx = 0
-    while (batchIdx < 40) {
-      const batchKey = `${cacheKey}_batch_${batchIdx}`
-      const batchDoc = await cacheCollection.doc(batchKey).get().catch(() => null)
-      const batchData = batchDoc && batchDoc.data && batchDoc.data.data
-      if (!batchData || !Array.isArray(batchData.results)) break
-      allResults = allResults.concat(batchData.results)
-      batchIdx++
+    const batchKeys = Array.isArray(apiData.batchKeys) && apiData.batchKeys.length
+      ? apiData.batchKeys
+      : null
+    if (batchKeys) {
+      for (const batchKey of batchKeys.slice(0, 20)) {
+        const batchDoc = await cacheCollection.doc(String(batchKey)).get().catch(() => null)
+        const batchData = batchDoc && batchDoc.data && batchDoc.data.data
+        if (batchData && Array.isArray(batchData.results)) {
+          allResults = allResults.concat(batchData.results)
+        }
+      }
+    } else {
+      let batchIdx = 0
+      while (batchIdx < 20) {
+        const batchKey = `${cacheKey}_batch_${batchIdx}`
+        const batchDoc = await cacheCollection.doc(batchKey).get().catch(() => null)
+        if (!batchDoc || !batchDoc.data || !batchDoc.data.data) break
+        const batchData = batchDoc.data.data
+        if (batchData.results && Array.isArray(batchData.results)) {
+          allResults = allResults.concat(batchData.results)
+        }
+        batchIdx++
+      }
     }
-  }
-  if (!allResults.length && apiData.results && Array.isArray(apiData.results)) {
+  } else if (apiData.results && Array.isArray(apiData.results)) {
     allResults = apiData.results
   }
 
@@ -79,17 +117,39 @@ function pickWindowStartIso(launch) {
   return launch.net || launch.window_start || launch.window_end || ''
 }
 
-function missionNameFromLaunch(launch) {
-  if (!launch) return ''
-  const mn = launch.mission && launch.mission.name
-  return String(mn || launch.name || '').substring(0, 20)
+function zhField(obj, key) {
+  if (!obj) return ''
+  const zh = obj[key + 'Zh'] || obj[key + '_zh']
+  return zh ? String(zh).trim() : ''
 }
 
 function rocketNameFromLaunch(launch) {
   if (!launch) return ''
   const cfg = launch.rocket && launch.rocket.configuration
   const name = cfg && (cfg.full_name || cfg.name)
-  return String(name || '').substring(0, 20)
+  return String(name || '').substring(0, 40)
+}
+
+function missionNameEnFromLaunch(launch) {
+  if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
+  const mn = launch.mission && launch.mission.name
+  const raw = String(mn || launch.name || '').trim()
+  if (ov && (!raw || /^unknown(\s+payloads?)?$/i.test(raw) || /未知有效载荷/.test(raw))) {
+    return ov.missionNameEn.substring(0, 40)
+  }
+  return raw.substring(0, 40)
+}
+
+/** 提醒 / 卡片展示用中文任务名（优先人工 override，再云端 nameZh，再短语词典） */
+function missionNameZhFromLaunch(launch, rocketEn, rocketZh) {
+  if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
+  if (ov) return ov.missionNameZh.substring(0, 20)
+  const en = missionNameEnFromLaunch(launch)
+  const fromCloud = zhField(launch.mission, 'name') || zhField(launch, 'name')
+  const zh = localizeMissionTitle(fromCloud || en, rocketEn, rocketZh)
+  return String(zh || en || '').substring(0, 20)
 }
 
 function padNameFromLaunch(launch) {
@@ -102,7 +162,13 @@ function siteFromLaunch(launch) {
   return String(launch.pad.location.name || '').substring(0, 40)
 }
 
-/** 与小程序 subscribe.js 回收文案尽量一致 */
+/** NET 精度名（Second/Minute/Hour/Day/Month…）；发射前推送用于识别占位时间 */
+function netPrecisionFromLaunch(launch) {
+  const p = launch && launch.net_precision
+  if (!p || typeof p !== 'object') return ''
+  return String(p.name || p.abbrev || '').substring(0, 20)
+}
+
 function recoveryMethodFromLaunch(launch) {
   const stages =
     (launch &&
@@ -150,29 +216,102 @@ function isUpcomingLaunch(launch, nowMs) {
 function mapLaunchToLaunchDataDoc(launch, nowMs) {
   const iso = pickWindowStartIso(launch)
   const windowDate = iso ? new Date(iso) : null
+  const rocketEn = rocketNameFromLaunch(launch)
   const cfg = (launch.rocket && launch.rocket.configuration) || null
+  const rocketZhFromCloud = cfg
+    ? String(cfg.full_nameZh || cfg.nameZh || '').trim()
+    : ''
+  const rocketZh =
+    (rocketZhFromCloud && /[\u4e00-\u9fff]/.test(rocketZhFromCloud) ? rocketZhFromCloud : '') ||
+    translateRocketName(rocketEn) ||
+    rocketEn
+  const missionEn = missionNameEnFromLaunch(launch)
+  const missionZh = missionNameZhFromLaunch(launch, rocketEn, rocketZh)
+  const nameEn = String(launch.name || '').substring(0, 40)
+  const nameZh = String(
+    zhField(launch, 'name') ||
+      localizeMissionTitle(nameEn, rocketEn, rocketZh) ||
+      nameEn
+  ).substring(0, 40)
+  const padEn = padNameFromLaunch(launch)
+  const siteEn = siteFromLaunch(launch)
   const lsp = launch.launch_service_provider || launch.lsp || null
+  const agencyEn = lsp && lsp.name ? String(lsp.name).trim() : ''
+  const agencyAbbrev = lsp && lsp.abbrev ? String(lsp.abbrev).trim() : ''
+  const agencyZh = translateAgencyName(agencyEn, agencyAbbrev) || agencyEn
   return {
     id: String(launch.id),
-    missionName: missionNameFromLaunch(launch),
-    name: String(launch.name || '').substring(0, 40),
-    rocketName: rocketNameFromLaunch(launch),
+    // 展示字段走中文（与发射卡对齐）；英文原名另存供偏好匹配 / character_string 编号槽
+    missionName: missionZh,
+    missionNameEn: missionEn,
+    name: nameZh,
+    nameEn: nameEn,
+    rocketName: rocketEn.substring(0, 40),
+    rocketNameZh: String(rocketZh || '').substring(0, 20),
     // 供 getLaunchStats 定时预热型号/发射商统计使用：
     // rocketConfigName 必须是 LL2 configuration.name 原值（统计过滤参数 rocket__configuration__name）
     rocketConfigName: String((cfg && cfg.name) || ''),
-    launchAgency: String((lsp && lsp.name) || ''),
+    // launchAgency 截 80：NASA 全称 46 字符，40 会截断导致 lsp__name 精确过滤失效
+    launchAgency: agencyEn.substring(0, 80),
     launchAgencyId: lsp && lsp.id != null ? lsp.id : null,
+    launchAgencyAbbrev: agencyAbbrev.substring(0, 20),
+    launchAgencyZh: String(agencyZh || '').substring(0, 20),
     windowStart: windowDate,
     launchTime: iso,
-    padName: padNameFromLaunch(launch),
-    pad: padNameFromLaunch(launch),
-    site: siteFromLaunch(launch),
+    padName: padEn,
+    padNameZh: String(zhField(launch.pad, 'name') || padEn).substring(0, 40),
+    pad: padEn,
+    site: siteEn,
+    siteZh: String(
+      (launch.pad && launch.pad.location && zhField(launch.pad.location, 'name')) || siteEn
+    ).substring(0, 40),
     recoveryMethod: recoveryMethodFromLaunch(launch),
     status: launch.status && launch.status.name ? String(launch.status.name) : '',
+    statusId: launch.status && launch.status.id != null ? Number(launch.status.id) : null,
+    // 发射前推送门控：Day/Month 等粗精度的 net 只是占位时刻，不能按确切时间发 T-30
+    netPrecision: netPrecisionFromLaunch(launch),
     syncedAt: nowMs,
     updatedAt: nowMs,
     source: 'space_devs_cache'
   }
+}
+
+/**
+ * 相对库内旧 NET：满 1 分钟的提前或延期打改期待推标记；否则尽量保留未消费的 pending。
+ */
+function attachNetChangeMeta(existing, payload) {
+  const oldIso = existing && existing.launchTime ? String(existing.launchTime) : ''
+  const newIso = payload && payload.launchTime ? String(payload.launchTime) : ''
+  const oldMs = oldIso ? new Date(oldIso).getTime() : 0
+  const newMs = newIso ? new Date(newIso).getTime() : 0
+  const lastPushed = (existing && existing.lastNetChangePushedKey) || ''
+
+  if (oldMs > 0 && newMs > 0 && Math.abs(newMs - oldMs) >= NET_CHANGE_DELAY_MS) {
+    // 已有未消费 pending 时保留最早 previousNet（推送展示「原时间 → 最新时间」）
+    payload.previousNet =
+      existing && existing.netChangePending && existing.previousNet
+        ? String(existing.previousNet)
+        : oldIso
+    payload.netChangedAt = Date.now()
+    payload.netChangePending = true
+  } else if (
+    existing &&
+    existing.netChangePending &&
+    oldIso &&
+    newIso &&
+    oldIso === newIso
+  ) {
+    // 同步未改 NET，保留待推（可能上轮推送未跑完）
+    payload.previousNet = existing.previousNet || oldIso
+    payload.netChangedAt = existing.netChangedAt || 0
+    payload.netChangePending = true
+  } else {
+    payload.previousNet = (existing && existing.previousNet) || ''
+    payload.netChangedAt = (existing && existing.netChangedAt) || 0
+    payload.netChangePending = false
+  }
+  payload.lastNetChangePushedKey = lastPushed
+  return payload
 }
 
 async function upsertLaunchDataDoc(docId, data) {
@@ -185,7 +324,8 @@ async function upsertLaunchDataDoc(docId, data) {
 
 async function removeStaleLaunchData(activeIds, nowMs) {
   const _ = db.command
-  const staleBefore = new Date(nowMs - 24 * 60 * 60 * 1000)
+  // 与 sendLaunchReminder 结果通知窗口（48h）对齐：过早清理会导致终态结果扫不到 launch_data
+  const staleBefore = new Date(nowMs - 48 * 60 * 60 * 1000)
   let removed = 0
   try {
     const oldRes = await db
@@ -209,31 +349,108 @@ async function removeStaleLaunchData(activeIds, nowMs) {
   return removed
 }
 
-/**
- * @returns {Promise<{success:boolean, upserted:number, skipped:number, removed:number, total:number, message?:string}>}
- */
+/** 业务字段是否与现有文档一致（忽略 syncedAt/updatedAt 等每次都变的时间戳） */
+function isLaunchDataDocUnchanged(existing, payload) {
+  if (!existing) return false
+  const COMPARE_FIELDS = [
+    'id', 'missionName', 'name', 'rocketName', 'rocketNameZh', 'rocketConfigName', 'launchTime',
+    'launchAgency', 'launchAgencyId', 'launchAgencyZh', 'launchAgencyAbbrev',
+    'padName', 'pad', 'site', 'siteZh', 'recoveryMethod', 'status', 'statusId',
+    'netPrecision', 'source'
+  ]
+  for (const f of COMPARE_FIELDS) {
+    const a = existing[f] == null ? null : existing[f]
+    const b = payload[f] == null ? null : payload[f]
+    if (a !== b) return false
+  }
+  const aMs = existing.windowStart instanceof Date ? existing.windowStart.getTime() : 0
+  const bMs = payload.windowStart instanceof Date ? payload.windowStart.getTime() : 0
+  return aMs === bMs
+}
+
+/** 一次性读出 launch_data 现有文档（1 次查询），供 diff 用；失败返回 null 走全量写 */
+async function readExistingLaunchDataMap() {
+  try {
+    const res = await db.collection(LAUNCH_DATA_COLLECTION).limit(1000).get()
+    const map = {}
+    for (const row of res.data || []) {
+      map[String(row._id)] = row
+    }
+    return map
+  } catch (e) {
+    return null
+  }
+}
+
+// 代际标记文档：记录上次同步时源缓存的签名，源缓存没更新就跳过全量同步。
+// 源缓存最多每小时被 syncSpaceDevsData 刷新一次，而本函数每 5 分钟触发，
+// 大多数 tick 只需 2 次读（主缓存文档 + 标记文档）即可确认无事可做。
+const SYNC_META_DOC_ID = '_sync_meta'
+// 签名未变时也强制重同步的最大间隔：兜底清理已过期任务 / 标记文档异常
+const FORCE_RESYNC_INTERVAL_MS = 3 * 60 * 60 * 1000
+
+async function readSyncMeta() {
+  try {
+    const res = await db.collection(LAUNCH_DATA_COLLECTION).doc(SYNC_META_DOC_ID).get()
+    return (res && res.data) || null
+  } catch (e) {
+    return null
+  }
+}
+
+async function writeSyncMeta(meta) {
+  try {
+    await db.collection(LAUNCH_DATA_COLLECTION).doc(SYNC_META_DOC_ID).set({ data: meta })
+  } catch (e) {}
+}
+
 async function syncLaunchDataFromCache() {
   const nowMs = Date.now()
-  const stats = { upserted: 0, skipped: 0, removed: 0, total: 0 }
+  const stats = { upserted: 0, unchanged: 0, skipped: 0, removed: 0, total: 0 }
 
-  try {
-    await db.createCollection(LAUNCH_DATA_COLLECTION)
-  } catch (e) {}
+  const { cacheKey, doc } = await readMainCacheDoc(UPCOMING_PATH, UPCOMING_PARAMS)
+  if (!doc) {
+    return { success: true, message: 'no upcoming cache doc', ...stats }
+  }
 
-  const raw = await readLaunchResultsFromCache(UPCOMING_PATH, UPCOMING_PARAMS)
+  // 代际比对：源缓存签名与上次同步一致且未超强制间隔 → 跳过批量读取与写库
+  const signature = cacheGenerationSignature(cacheKey, doc)
+  const meta = await readSyncMeta()
+  if (
+    meta &&
+    meta.signature === signature &&
+    Number(meta.schemaVersion) === LAUNCH_DATA_SCHEMA &&
+    Number(meta.lastSyncAtMs) > 0 &&
+    nowMs - Number(meta.lastSyncAtMs) < FORCE_RESYNC_INTERVAL_MS
+  ) {
+    return {
+      success: true,
+      message: 'cache generation unchanged, sync skipped',
+      skippedByGeneration: true,
+      ...stats,
+      total: Number(meta.total) || 0
+    }
+  }
+
+  const raw = await readResultsFromCacheDoc(cacheKey, doc)
   const upcoming = (raw || []).filter(function (l) {
     return isUpcomingLaunch(l, nowMs)
   })
   stats.total = upcoming.length
 
   if (upcoming.length === 0) {
-    return {
-      success: true,
-      message: 'no upcoming launches in cache',
-      ...stats
-    }
+    await writeSyncMeta({
+      signature,
+      lastSyncAtMs: nowMs,
+      total: 0,
+      schemaVersion: LAUNCH_DATA_SCHEMA
+    })
+    return { success: true, message: 'no upcoming launches in cache', ...stats }
   }
 
+  // 绝大多数任务数据没有变化：先用 1 次查询读出现状，
+  // 只对有实际变化的文档写库，避免每轮 ~100 次盲写
+  const existingMap = await readExistingLaunchDataMap()
   const activeIds = new Set()
 
   for (let i = 0; i < upcoming.length; i++) {
@@ -247,8 +464,15 @@ async function syncLaunchDataFromCache() {
 
     try {
       const payload = mapLaunchToLaunchDataDoc(launch, nowMs)
+      const existing = existingMap ? existingMap[docId] : null
+      if (existing && isLaunchDataDocUnchanged(existing, payload)) {
+        stats.unchanged++
+        continue
+      }
+      attachNetChangeMeta(existing, payload)
       await upsertLaunchDataDoc(docId, payload)
       stats.upserted++
+      if (payload.netChangePending) stats.netChangePending = (stats.netChangePending || 0) + 1
     } catch (e) {
       stats.skipped++
       console.warn('[launch-data-sync] upsert fail', docId, e.message || e)
@@ -256,6 +480,13 @@ async function syncLaunchDataFromCache() {
   }
 
   stats.removed = await removeStaleLaunchData(activeIds, nowMs)
+
+  await writeSyncMeta({
+    signature,
+    lastSyncAtMs: nowMs,
+    total: stats.total,
+    schemaVersion: LAUNCH_DATA_SCHEMA
+  })
 
   return {
     success: true,
@@ -266,5 +497,10 @@ async function syncLaunchDataFromCache() {
 
 module.exports = {
   syncLaunchDataFromCache,
-  readLaunchResultsFromCache
+  LAUNCH_DATA_SCHEMA,
+  NET_CHANGE_DELAY_MS,
+  attachNetChangeMeta,
+  isLaunchDataDocUnchanged,
+  mapLaunchToLaunchDataDoc,
+  isUpcomingLaunch
 }

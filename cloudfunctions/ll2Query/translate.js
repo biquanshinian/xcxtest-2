@@ -1,6 +1,10 @@
 /**
- * 腾讯云机器翻译 TMT + translation_cache 缓存
- * 环境变量: TMT_SECRET_ID, TMT_SECRET_KEY (未配置时跳过机翻，仅走术语词典)
+ * 同步管线翻译：词典 + translation_cache + 混元 AI（主通道）+ TMT（仅兜底）
+ * 环境变量: TMT_SECRET_ID, TMT_SECRET_KEY（未配置时跳过 TMT；混元走云开发 AI+，零密钥）
+ *
+ * 与 ll2Query/translate.js 同源，差异只在这里是离线批量场景：
+ * 一轮同步可能翻几百条，混元比 TMT 慢一个量级，所以混元受 beginTranslateRun 的
+ * 时间预算约束，超预算的条目留给 TMT / 下一轮（结果进 translation_cache，逐轮补齐）。
  */
 const crypto = require('crypto')
 const https = require('https')
@@ -8,19 +12,59 @@ const cloud = require('wx-server-sdk')
 
 const {
   applyPhraseRules,
+  repairMachineTranslationZh,
   protectTerms,
   restoreTerms,
-  shouldMachineTranslate
+  shouldMachineTranslate,
+  isUsableZhText
 } = require('./space-terms-i18n.js')
+const { repairAerospaceZhMistranslations } = require('./mission-title-i18n.js')
 
 const TMT_HOST = 'tmt.tencentcloudapi.com'
 const TMT_SERVICE = 'tmt'
 const TMT_VERSION = '2018-03-21'
 const TMT_REGION = 'ap-guangzhou'
-// TextTranslateBatch 源文本总量上限约 6000 字节，按累计字符数切批留出余量
+// TextTranslateBatch 源文本总量上限约 6000 字符，按累计字符数切批留出余量
 const BATCH_MAX_CHARS = 4500
 const BATCH_MAX_ITEMS = 16
+/** 单条超过此长度必须切开，否则整批触发 UnsupportedOperation.TextTooLong */
+const ITEM_MAX_CHARS = 4000
 const CACHE_COLLECTION = 'translation_cache'
+
+/**
+ * 超长文本按段落/句子边界切成 ≤ maxChars 的片段（保序）。
+ * 修复「单条超长的独立成批」仍可能超过 TMT 单次上限导致整条失败的问题。
+ */
+function splitLongText(text, maxChars) {
+  const s = String(text || '')
+  const limit = Math.max(200, maxChars | 0)
+  if (!s) return []
+  if (s.length <= limit) return [s]
+
+  const out = []
+  let start = 0
+  while (start < s.length) {
+    if (s.length - start <= limit) {
+      out.push(s.slice(start))
+      break
+    }
+    const window = s.slice(start, start + limit)
+    let br = -1
+    const seps = ['\n\n', '\n', '. ', '? ', '! ', '; ', ', ', ' ']
+    for (let si = 0; si < seps.length; si++) {
+      const sep = seps[si]
+      const i = window.lastIndexOf(sep)
+      if (i >= Math.floor(limit * 0.35)) {
+        br = start + i + sep.length
+        break
+      }
+    }
+    if (br <= start) br = start + limit
+    out.push(s.slice(start, br))
+    start = br
+  }
+  return out.filter((p) => p && p.length)
+}
 
 function sha256(msg) {
   return crypto.createHash('sha256').update(msg, 'utf8').digest('hex')
@@ -218,16 +262,304 @@ async function tmtTranslateBatch(sourceTexts) {
   return list.map((s) => String(s || '').trim())
 }
 
+// ── 混元大模型翻译（主通道；与 ll2Query / syncSpaceXTweets 同一套 AI+） ──
+
+const AI_TRANSLATE_CHUNK_CHARS = 1200
+const AI_TRANSLATE_CONCURRENCY = 3
 /**
- * 批量翻译英文文本 → 中文（词典预处理 + 缓存 + TMT）
+ * 一次云函数调用内混元的总时间预算。函数 timeout 是 800s，留足抓取与写库的时间；
+ * 超预算的条目落 TMT 或留到下一轮（6 小时一次，命中缓存后逐轮补齐）。
+ */
+const AI_RUN_BUDGET_MS = 300000
+/** 剩余预算低于这个值就不再开新条目，避免最后一条卡在半路白等 */
+const AI_MIN_SLICE_MS = 15000
+
+const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天航空领域的专业中英翻译，译文必须使用中国航天科技/载人航天/商业航天报道的通行专业词汇，禁止民航义、影视义和日常意译。
+1. 只输出译文本身，不要任何解释、注释、前缀或引号
+2. 固定译名不可改写：Of Course I Still Love You / OCISLY→当然我依然爱你号；Just Read The Instructions / JRTI→只需阅读说明号；A Shortfall Of Gravitas / ASOG→缺乏庄严号
+3. 火箭/飞船型号用通行中文：Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦。机构缩写（SpaceX、NASA、ISS、NROL）可保留原文；USSF→美国太空军（禁止保留 USSF）
+4. 任务与载荷：Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group 10-19→星链组 10-19（组号连字符两侧不加空格，禁止「星链组 10 - 19」），Flight N→第N次飞行（禁止「航班」「飞行N」）
+5. 强制术语：Crew-N→载人-N（禁止「人物」「船员」「剧组」）；Crew Dragon→载人龙飞船；Cargo Dragon→货运龙飞船；crewed→载人；乘组语境 crew→乘组；Flight Test N→第N次试飞；Zhuque/ZQ→朱雀（禁止「麻雀」「雀雀」「孔雀」）
+6. 专业词汇（禁止另译）：booster=助推器，first/second stage=一/二级，upper stage=上面级，core stage=芯级，fairing=整流罩，payload=有效载荷，splashdown=溅落，reentry=再入，landing zone=着陆区（禁止「降落区」），drone ship=无人船（禁止「无人机船」），launch pad/complex=发射台/发射工位，launch vehicle=运载火箭，launch window=发射窗口，static fire=静态点火，wet dress rehearsal=湿彩排，hot staging=热分离，grid fins=栅格舵，landing legs=着陆支架，flyback=返场，orbit insertion=入轨，apogee/perigee=远/近地点
+7. 除第2条固定船名外，地点与任务名一律用专业通行译名，不要文艺化、不要意译成日常口语
+8. 同一英文术语全文必须使用同一中文译名
+9. Launch Library 动态：NET / No Earlier Than=最早不早于（禁止译成「网络」）；TBC=待确认；TBD=待定；Added launch=已添加发射；GO for launch=发射就绪；scrub=取消当日发射
+10. 星舰清单：Proof Campaign=加压测试流程；Raptor / Raptor V3=猛禽3；Rollout=转运；Stacked=吊装至助推器顶部；Booster N=助推器N；Ship N=星舰N`
+
+/** 机翻后纠偏：通译模型常把 Crew 译成「人物」、Flight 译成「航班」 */
+function sanitizeAerospaceTranslation(zh, srcEn) {
+  let s = String(zh || '')
+  if (!s) return ''
+  const en = String(srcEn || '')
+  if (/\bCrew\b/i.test(en) || /人物|船员|剧组/.test(s)) {
+    s = s
+      .replace(/人物龙飞船/g, '载人龙飞船')
+      .replace(/人物\s*Dragon/gi, '载人龙飞船')
+      .replace(/人物[-\s]?(\d+)/g, '载人-$1')
+      .replace(/船员[-\s]?(\d+)/g, '载人-$1')
+      .replace(/剧组[-\s]?(\d+)/g, '载人-$1')
+      .replace(/全体人员[-\s]?(\d+)/g, '载人-$1')
+  }
+  if (/\bCrew\s+Dragon\b/i.test(en)) {
+    s = s.replace(/\bCrew\s+Dragon\b/gi, '载人龙飞船')
+  }
+  if (/\bCrew[-\s]?\d+\b/i.test(en)) {
+    s = s.replace(/\bCrew[-\s]?(\d+)\b/gi, '载人-$1')
+  }
+  if (/\bFlight\b/i.test(en) || /航班|飞行\s*\d+|试飞\s*\d+/.test(s)) {
+    s = s
+      .replace(/航班[-\s]?(\d+)/g, '第$1次飞行')
+      .replace(/航班/g, '飞行')
+      .replace(/飞行\s*(\d+)/g, '第$1次飞行')
+      .replace(/试飞\s*(\d+)/g, '第$1次试飞')
+      .replace(/\bFlight\s+Test\s+(\d+)\b/gi, '第$1次试飞')
+      .replace(/\bFlight\s+Test\b/gi, '试飞')
+      .replace(/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行')
+      .replace(/\bFlight\b/gi, '飞行')
+  }
+  // Roman → 绝不能落成「罗斯」(Ross) / 「罗丝」(Rose)
+  if (/roman/i.test(en) || /南希.?格蕾丝.?(罗斯|罗丝)|(罗斯|罗丝)太空望远镜/.test(s)) {
+    s = s
+      .replace(/南希.{0,3}格蕾丝.{0,3}(罗斯|罗丝)/g, '南希-格蕾丝-罗曼')
+      .replace(/(罗斯|罗丝)太空望远镜/g, '罗曼太空望远镜')
+  }
+  // Zhuque → 绝不能落成「麻雀」「雀雀」
+  if (/zhuque|\bzq\b/i.test(en) || /麻雀|雀雀|孔雀/.test(s)) {
+    const numZh = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 10: '十' }
+    s = s
+      .replace(/雀雀|孔雀/g, '朱雀')
+      .replace(/第一一级/g, '一级')
+      .replace(/短程着陆台/g, '航区着陆场')
+      .replace(/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改')
+      .replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => '朱雀' + (numZh[Number(n)] || n) + '号' + (String(e).toLowerCase() === 'e' ? '改' : ''))
+      .replace(/麻雀\s*[-–]?\s*(\d+)号?(?=\s|[|｜]|$|[^\d号])/g, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
+      .replace(/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号')
+      .replace(/Zhuque[-\s]?(\d+)/gi, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
+      .replace(/\bZQ[-\s]?(\d+)\b/gi, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
+  }
+  if (/\bUSSF\b/i.test(en) || /USSF/.test(s)) {
+    s = s
+      .replace(/\bUSSF[-\s]?(\d+)\b/gi, '美国太空军-$1')
+      .replace(/\bUSSF\b/g, '美国太空军')
+  }
+  return repairAerospaceZhMistranslations(repairMachineTranslationZh(s, srcEn))
+}
+
+let _aiDeadline = 0
+
+/**
+ * 每次云函数调用开始时重置混元预算，须在 exports.main 里调用。
+ * 没调用时预算为 0 → 混元整段跳过、退回纯 TMT 行为，
+ * 也就是说漏接线只会退化成旧逻辑，不会把同步拖到超时。
+ */
+function beginTranslateRun(budgetMs) {
+  _aiDeadline = Date.now() + (budgetMs > 0 ? budgetMs : AI_RUN_BUDGET_MS)
+}
+
+function aiBudgetLeftMs() {
+  return _aiDeadline ? Math.max(0, _aiDeadline - Date.now()) : 0
+}
+
+/** 云函数端 AI 入口：新版 cloud.ai()，旧版 cloud.extend.AI（需 wx-server-sdk >= 3.0.5-beta.1） */
+function getAIEntry() {
+  try {
+    if (typeof cloud.ai === 'function') {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') return inst
+    }
+  } catch (e) {}
+  if (cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    return cloud.extend.AI
+  }
+  return null
+}
+
+function extractLLMText(res) {
+  if (!res) return ''
+  if (typeof res === 'string') return res.trim()
+  if (res.choices && res.choices[0]) {
+    const msg = res.choices[0].message || res.choices[0].delta
+    if (msg && msg.content) return String(msg.content).trim()
+  }
+  if (res.result && res.result.choices && res.result.choices[0]) {
+    const msg = res.result.choices[0].message
+    if (msg && msg.content) return String(msg.content).trim()
+  }
+  if (res.content) return String(res.content).trim()
+  if (res.text) return String(res.text).trim()
+  return ''
+}
+
+async function collectTextStream(textStream) {
+  if (!textStream || typeof textStream[Symbol.asyncIterator] !== 'function') return ''
+  let out = ''
+  for await (const chunk of textStream) {
+    out += chunk || ''
+  }
+  return out.trim()
+}
+
+function cleanAITranslation(s, srcEn) {
+  let out = String(s || '').trim()
+  out = out.replace(/^(译文|翻译|中文译文)[:：]\s*/, '')
+  const wrapped =
+    (out.startsWith('"') && out.endsWith('"')) ||
+    (out.startsWith('\u201c') && out.endsWith('\u201d')) ||
+    (out.startsWith('「') && out.endsWith('」'))
+  if (wrapped) out = out.slice(1, -1).trim()
+  return sanitizeAerospaceTranslation(out, srcEn)
+}
+
+function isTmtPermanentError(err) {
+  const msg = String((err && err.message) || err || '')
+  return /FreeAmountUsedUp|AmountUsedUp|free amount|额度|配额|Unauthorized|AuthFailure|InvalidParameterValue|UnsupportedOperation/i.test(msg)
+}
+
+async function mapPool(items, concurrency, mapper) {
+  const out = new Array(items.length)
+  let next = 0
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1))
+  const workers = []
+  for (let w = 0; w < limit; w++) {
+    workers.push((async function () {
+      while (next < items.length) {
+        const i = next++
+        out[i] = await mapper(items[i], i)
+      }
+    })())
+  }
+  await Promise.all(workers)
+  return out
+}
+
+/** 混元翻译单个片段；失败返回空串 */
+async function translateViaAIChunk(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
+  const AI = getAIEntry()
+  if (!AI) return ''
+
+  const providers = [
+    { provider: 'cloudbase', model: 'hy3-preview' },
+    { provider: 'hunyuan-v3', model: 'hy3-preview' },
+    { provider: 'hunyuan-open', model: 'hunyuan-lite' }
+  ]
+  const maxTokens = Math.min(2048, Math.max(400, Math.ceil(src.length * 1.2)))
+  const timeoutMs = Math.min(12000, 8000 + Math.ceil(src.length * 4))
+  const messages = [
+    { role: 'system', content: AI_TRANSLATE_SYSTEM_PROMPT },
+    { role: 'user', content: src }
+  ]
+
+  for (const p of providers) {
+    try {
+      const model = AI.createModel(p.provider)
+      const res = await Promise.race([
+        model.generateText({
+          model: p.model,
+          messages,
+          temperature: 0.2,
+          max_tokens: maxTokens
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI 翻译超时')), timeoutMs))
+      ])
+      const cleaned = cleanAITranslation(extractLLMText(res), src)
+      if (cleaned && looksLikelyChinese(cleaned)) return cleaned
+    } catch (e) {
+      console.warn(`[translate] generateText 失败 (${p.provider}/${p.model}):`, e.message || e)
+    }
+
+    try {
+      const model = AI.createModel(p.provider)
+      if (typeof model.streamText !== 'function') continue
+      const streamRes = await Promise.race([
+        model.streamText({
+          data: {
+            model: p.model,
+            messages,
+            temperature: 0.2,
+            max_tokens: maxTokens
+          }
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI stream 超时')), timeoutMs))
+      ])
+      const cleaned = cleanAITranslation(await collectTextStream(streamRes && streamRes.textStream), src)
+      if (cleaned && looksLikelyChinese(cleaned)) return cleaned
+    } catch (e) {
+      console.warn(`[translate] streamText 失败 (${p.provider}/${p.model}):`, e.message || e)
+    }
+  }
+  return ''
+}
+
+/** 混元翻译单条（超长按句段切开后合并；任一段失败则整条空） */
+async function translateViaAI(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
+  const parts = splitLongText(src, AI_TRANSLATE_CHUNK_CHARS)
+  if (!parts.length) return ''
+  if (parts.length === 1) return translateViaAIChunk(parts[0])
+
+  const zhParts = await mapPool(parts, AI_TRANSLATE_CONCURRENCY, async (part) => translateViaAIChunk(part))
+  if (!zhParts.every(Boolean)) return ''
+  return zhParts.join('')
+}
+
+/**
+ * 对未命中缓存的条目走混元；成功则写入 results / cache，返回仍需 TMT 的项。
+ * 预算耗尽后剩余条目原样退回，由 TMT 或下一轮同步接手。
+ */
+async function translatePendingViaAI(toMachine, hashToIndices, results) {
+  if (!toMachine.length) return { remaining: [], aiHit: 0, aiBudgetOut: false }
+  if (!getAIEntry()) {
+    console.warn('[translate] 云开发 AI 不可用，跳过混元主通道（确认 wx-server-sdk >= 3.0.5-beta.1）')
+    return { remaining: toMachine, aiHit: 0, aiBudgetOut: false }
+  }
+  if (aiBudgetLeftMs() <= 0) {
+    return { remaining: toMachine, aiHit: 0, aiBudgetOut: true }
+  }
+
+  const cacheWrites = []
+  const remaining = []
+  let aiHit = 0
+  let aiBudgetOut = false
+
+  await mapPool(toMachine, AI_TRANSLATE_CONCURRENCY, async (item) => {
+    if (aiBudgetLeftMs() < AI_MIN_SLICE_MS) {
+      aiBudgetOut = true
+      remaining.push(item)
+      return
+    }
+    const zh = sanitizeAerospaceTranslation(await translateViaAI(item.raw), item.raw)
+    if (zh && looksLikelyChinese(zh)) {
+      aiHit++
+      for (const idx of hashToIndices[item.hash]) {
+        results[idx] = zh
+      }
+      if (zh !== item.raw) {
+        cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
+      }
+    } else {
+      remaining.push(item)
+    }
+  })
+
+  await writeCacheBatch(cacheWrites)
+  if (aiBudgetOut) {
+    console.warn(`[translate] 混元预算用尽，${remaining.length} 条留给 TMT / 下一轮同步`)
+  }
+  console.log(`[translate] 混元命中 ${aiHit}/${toMachine.length}`)
+  return { remaining, aiHit, aiBudgetOut }
+}
+
+/**
+ * 批量翻译英文文本 → 中文（词典预处理 + 缓存 + 混元 + TMT 兜底）
  * @param {string[]} texts
- * @param {Object} [options]
- *   - skipTmt: 只走词典 + translation_cache，未命中项留空不调 TMT
- *     （客户端"混元优先"链路用：先免费查缓存，miss 再走大模型，失败才回 TMT）
+ * @param {{ forceAt?: boolean[] }} [opts] forceAt[i]=true 时跳过 shouldMachineTranslate（型号短名）
  * @returns {Promise<string[]>}
  */
-async function translateTextsBatch(texts, options) {
-  const skipTmt = !!(options && options.skipTmt)
+async function translateTextsBatch(texts, opts) {
+  const forceAt = (opts && opts.forceAt) || null
   const inputs = (texts || []).map((t) => String(t || '').trim())
   const results = new Array(inputs.length).fill('')
   const pending = []
@@ -235,12 +567,20 @@ async function translateTextsBatch(texts, options) {
   for (let i = 0; i < inputs.length; i++) {
     const raw = inputs[i]
     if (!raw) continue
-    if (!shouldMachineTranslate(raw)) {
-      results[i] = applyPhraseRules(raw) || raw
+    const forced = !!(forceAt && forceAt[i])
+    // 先套专业术语/固定译名：整句已是可用中文才跳过机翻；半译混排改送原文给混元
+    const prepared = applyPhraseRules(raw) || raw
+    if (!forced && isUsableZhText(prepared)) {
+      results[i] = prepared
       continue
     }
-    const hash = hashText(raw)
-    pending.push({ index: i, raw, hash })
+    if (!forced && !shouldMachineTranslate(raw) && !/[\u4e00-\u9fff]/.test(prepared)) {
+      results[i] = prepared
+      continue
+    }
+    const sendRaw = (/[\u4e00-\u9fff]/.test(prepared) && !isUsableZhText(prepared)) ? raw : prepared
+    const hash = hashText(sendRaw)
+    pending.push({ index: i, raw: sendRaw, hash })
   }
 
   if (!pending.length) return results
@@ -248,41 +588,83 @@ async function translateTextsBatch(texts, options) {
   const cacheMap = await readCacheBatch(pending.map((p) => p.hash))
   // 同一文本（如发射台名）在一次同步里出现几十次：按 hash 去重，只机翻一次
   const hashToIndices = {}
-  const toTmt = []
+  const toMachine = []
 
   for (const item of pending) {
     if (cacheMap[item.hash]) {
-      results[item.index] = cacheMap[item.hash]
+      results[item.index] = sanitizeAerospaceTranslation(cacheMap[item.hash], item.raw)
       continue
     }
     if (hashToIndices[item.hash]) {
       hashToIndices[item.hash].push(item.index)
     } else {
       hashToIndices[item.hash] = [item.index]
-      toTmt.push(item)
+      toMachine.push(item)
     }
   }
 
-  if (skipTmt) return results
+  // 主通道：混元 AI（不依赖 TMT 额度）；未覆盖的才落 TMT
+  const aiOut = await translatePendingViaAI(toMachine, hashToIndices, results)
+  const toTmt = aiOut.remaining
+  if (!toTmt.length) return results
 
-  // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长的独立成批
+  if (!isTmtConfigured()) {
+    warnTmtUnconfiguredOnce()
+    return results
+  }
+
+  // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长先按句段切开再入批
+  const units = []
+  for (const item of toTmt) {
+    const parts = splitLongText(item.raw, ITEM_MAX_CHARS)
+    if (!parts.length) continue
+    if (parts.length === 1) {
+      units.push({ hash: item.hash, raw: parts[0], groupKey: item.hash, partIndex: 0, partCount: 1 })
+    } else {
+      for (let pi = 0; pi < parts.length; pi++) {
+        units.push({
+          hash: item.hash,
+          raw: parts[pi],
+          groupKey: item.hash,
+          partIndex: pi,
+          partCount: parts.length
+        })
+      }
+    }
+  }
+
   const batches = []
   let current = []
   let currentChars = 0
-  for (const item of toTmt) {
-    const len = item.raw.length
+  for (const unit of units) {
+    const len = unit.raw.length
     if (current.length > 0 && (currentChars + len > BATCH_MAX_CHARS || current.length >= BATCH_MAX_ITEMS)) {
       batches.push(current)
       current = []
       currentChars = 0
     }
-    current.push(item)
+    current.push(unit)
     currentChars += len
   }
   if (current.length > 0) batches.push(current)
 
+  const segmentParts = {}
+
   let batchIndex = 0
+  let tmtQuotaExhausted = false
   for (const batch of batches) {
+    // 额度已用尽：剩余批次直接留空，否则几百批每批还要重试 + sleep，白烧同步时间
+    if (tmtQuotaExhausted) {
+      for (let j = 0; j < batch.length; j++) {
+        const item = batch[j]
+        if (!segmentParts[item.groupKey]) {
+          segmentParts[item.groupKey] = new Array(item.partCount).fill('')
+        }
+        segmentParts[item.groupKey][item.partIndex] = ''
+      }
+      continue
+    }
+
     // TMT 免费档限频 5 QPS：多批之间加间隔，避免连环触发 RequestLimitExceeded
     if (batchIndex > 0) await new Promise((r) => setTimeout(r, 250))
     batchIndex++
@@ -300,6 +682,11 @@ async function translateTextsBatch(texts, options) {
       } catch (e) {
         lastErr = e
         translated = sourceList.map(() => '')
+        // 额度用尽等永久错误：不重试、后续批次直接跳过
+        if (isTmtPermanentError(e)) {
+          tmtQuotaExhausted = /FreeAmountUsedUp|AmountUsedUp|free amount|额度|配额/i.test(String(e.message || e))
+          break
+        }
         // 限频/瞬时网络错误等 500ms 重试一次
         await new Promise((r) => setTimeout(r, 500))
       }
@@ -308,7 +695,6 @@ async function translateTextsBatch(texts, options) {
       console.error('[translate] TMT batch failed after retry:', lastErr.message || lastErr)
     }
 
-    const cacheWrites = []
     for (let j = 0; j < batch.length; j++) {
       const item = batch[j]
       const prot = protectedList[j]
@@ -316,28 +702,71 @@ async function translateTextsBatch(texts, options) {
       if (zh) zh = restoreTerms(zh, prot.placeholders)
       // TMT 失败/未配置时不降级伪造译文：宁可留空（展示原文），也不写中英夹杂
       if (zh && !looksLikelyChinese(zh)) zh = ''
-      if (!zh) continue
-      for (const idx of hashToIndices[item.hash]) {
-        results[idx] = zh
+      if (!segmentParts[item.groupKey]) {
+        segmentParts[item.groupKey] = new Array(item.partCount).fill('')
       }
-      if (isTmtConfigured() && zh !== item.raw) {
-        cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
-      }
+      segmentParts[item.groupKey][item.partIndex] = zh || ''
     }
-    await writeCacheBatch(cacheWrites)
   }
+
+  const cacheWrites = []
+  for (const item of toTmt) {
+    const parts = segmentParts[item.hash]
+    if (!parts || !parts.length || !parts.every(Boolean)) continue
+    const zh = sanitizeAerospaceTranslation(parts.join(''), item.raw)
+    if (!zh || !looksLikelyChinese(zh)) continue
+    for (const idx of hashToIndices[item.hash]) {
+      results[idx] = zh
+    }
+    if (isTmtConfigured() && zh !== item.raw) {
+      cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
+    }
+  }
+  await writeCacheBatch(cacheWrites)
 
   return results
 }
 
-/** 诊断：TMT 配置状态 + 实测一句翻译 + 翻译缓存文档数 */
+/**
+ * 诊断：混元主通道 + TMT 兜底 + 缓存。
+ * aiEntry 为空 = wx-server-sdk 太旧（cloud.ai 需要 >= 3.0.5-beta.1），
+ * 同步就只剩 TMT，额度用尽后新数据不再产出 xxxZh 预翻译。
+ */
 async function runTranslateDiag() {
   const out = {
+    sdkVersion: '',
+    aiEntry: '',
+    aiResult: '',
+    aiError: '',
     tmtConfigured: isTmtConfigured(),
     testSource: 'The rocket lifted off from the launch pad.',
     testResult: '',
     tmtError: '',
     cacheCount: -1
+  }
+
+  try {
+    out.sdkVersion = require('wx-server-sdk/package.json').version || ''
+  } catch (e) {}
+
+  if (typeof cloud.ai === 'function') {
+    try {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') out.aiEntry = 'cloud.ai'
+    } catch (e) {}
+  }
+  if (!out.aiEntry && cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    out.aiEntry = 'cloud.extend.AI'
+  }
+  if (out.aiEntry) {
+    try {
+      out.aiResult = await translateViaAI(out.testSource)
+      if (!out.aiResult) out.aiError = '混元入口可用但未产出译文'
+    } catch (e) {
+      out.aiError = e.message || String(e)
+    }
+  } else {
+    out.aiError = '云开发 AI 入口不存在，请确认 wx-server-sdk >= 3.0.5-beta.1 且已云端安装依赖'
   }
 
   if (out.tmtConfigured) {
@@ -399,6 +828,7 @@ async function cleanTranslationCache() {
 
 module.exports = {
   translateTextsBatch,
+  beginTranslateRun,
   hashText,
   isTmtConfigured,
   looksLikelyChinese,

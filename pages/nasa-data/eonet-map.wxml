@@ -1,9 +1,25 @@
 <view class="map-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav">
-      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
-      <text class="nav-title">地球事件位置</text>
-      <view class="nav-placeholder"></view>
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">地球事件位置</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
     </view>
   </view>
 
@@ -16,6 +32,8 @@
     enable-scroll="true"
     enable-zoom="true"
     show-location="{{false}}"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
   ></map>
 
   <view class="panel glass-card">

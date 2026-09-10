@@ -1,7 +1,7 @@
 /**
  * Next Spaceflight 星舰硬件设施中文化：
- * 状态/类型/分类标签映射、65 条载具简介的内置翻译表、测试名称与地点的短语翻译。
- * 网站新增载具时翻译表可能覆盖不到，此时前端显示英文原文。
+ * 状态/类型/分类标签映射、载具简介内置翻译表、测试名称与地点短语翻译。
+ * 未命中词典的简介/备注由 nextspaceflight-hardware 同步时走混元/TMT 自动补齐。
  */
 
 const STATUS_ZH = {
@@ -147,9 +147,68 @@ const LOCATION_ZH = {
   'Launch Site Cryostation, Starbase, Texas, USA': '星堡发射场低温测试站（德州）'
 }
 
+function hasEnoughChinese(text) {
+  const s = String(text || '').replace(/https?:\/\/\S+/g, ' ')
+  if (!s.trim()) return false
+  const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length
+  const latin = (s.match(/[A-Za-z]/g) || []).length
+  return cjk > 0 && cjk / (cjk + latin) >= 0.25
+}
+
+/** 常见 NSF 简介句式的轻量规则（词典未命中时的第一层，机翻前预处理） */
+const NOTE_PHRASE_RULES = [
+  [/\bis a structural test article\b/gi, '是结构测试件'],
+  [/\bis a test vehicle\b/gi, '是测试载具'],
+  [/\bis a full stack\b/gi, '是组合体'],
+  [/\bis a v(\d+)\s+Super-?Heavy(?:\s+booster)?(?:\s+prototype)?\b/gi, '是 v$1 超重型助推器原型机'],
+  [/\bis a v(\d+)\s+(?:Starship|ship)(?:\s+upper\s+stage)?(?:\s+prototype)?\b/gi, '是 v$1 星舰上面级原型机'],
+  [/\bis a Super-?Heavy(?:\s+booster)?(?:\s+prototype)?\b/gi, '是超重型助推器原型机'],
+  [/\bis a Starship(?:\s+upper\s+stage)?(?:\s+prototype)?\b/gi, '是星舰上面级原型机'],
+  [/\bSuper-?Heavy\b/gi, '超重型助推器'],
+  [/\bupper stage\b/gi, '上面级'],
+  [/\bprototype\b/gi, '原型机'],
+  [/\bstatic fire(?:\s+stand)?\b/gi, '静态点火'],
+  [/\bcryogenic proof(?:\s+test)?\b/gi, '低温耐压测试'],
+  [/\bexpected to (?:fly|perform|fly on)\b/gi, '预计执行'],
+  [/\bStarship Flight(?: Test)? (\d+)\b/gi, '星舰第 $1 次试飞'],
+  [/\bFlight (\d+)\b/gi, '第 $1 次试飞'],
+  [/\bStarbase\b/gi, '星堡'],
+  [/\bMasseys?\b/gi, 'Massey 试验场'],
+  [/\bheat shield\b/gi, '隔热罩'],
+  [/\bpayload bay\b/gi, '载荷舱'],
+  [/\brapid unscheduled disassembly\b/gi, '快速非计划解体（RUD）'],
+  [/\b\bRUD\b/g, 'RUD']
+]
+
+function applyNotePhraseRules(text) {
+  let s = String(text || '').trim()
+  if (!s) return ''
+  for (let i = 0; i < NOTE_PHRASE_RULES.length; i++) {
+    s = s.replace(NOTE_PHRASE_RULES[i][0], NOTE_PHRASE_RULES[i][1])
+  }
+  return s.trim()
+}
+
 function translateVehicleNotes(name, notesEn) {
-  const zh = VEHICLE_NOTES_ZH[String(name || '').trim()]
-  return zh || String(notesEn || '')
+  const key = String(name || '').trim()
+  const en = String(notesEn || '').trim()
+  if (VEHICLE_NOTES_ZH[key]) return VEHICLE_NOTES_ZH[key]
+  if (!en) return ''
+  if (hasEnoughChinese(en)) return en
+  const phrased = applyNotePhraseRules(en)
+  // 规则已产出足量中文则采用；否则仍回英文，交给同步机翻补齐
+  if (phrased && hasEnoughChinese(phrased)) return phrased
+  return en
+}
+
+/** notesZh 仍是英文占位时，需要机翻 */
+function needsMachineNotes(notesZh, notesEn) {
+  const zh = String(notesZh || '').trim()
+  const en = String(notesEn || '').trim()
+  if (!en) return false
+  if (!zh) return true
+  if (zh === en) return true
+  return !hasEnoughChinese(zh)
 }
 
 function translateTestName(nameEn) {
@@ -178,5 +237,8 @@ module.exports = {
   VEHICLE_NOTES_ZH,
   translateVehicleNotes,
   translateTestName,
-  translateLocation
+  translateLocation,
+  hasEnoughChinese,
+  needsMachineNotes,
+  applyNotePhraseRules
 }

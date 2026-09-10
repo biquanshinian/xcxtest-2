@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -8,7 +8,7 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
 }
 
@@ -46,9 +46,7 @@ page {
   background: rgba(18, 20, 24, 0.62);
   backdrop-filter: blur(28rpx) saturate(170%);
   -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
 }
 
 .updates-card {
@@ -123,8 +121,8 @@ page {
 }
 
 .detail-update-node--latest {
-  background: #007aff;
-  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.6);
+  background: #3B82F6;
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.6);
 }
 
 .detail-update-main {
@@ -162,8 +160,10 @@ page {
 .detail-update-link,
 .detail-link {
   font-size: 22rpx;
-  color: #007aff;
+  color: #3B82F6;
 }
+
+/* 加载骨架屏：样式统一定义在 app.wxss（.detail-skeleton / .skeleton-card / .skeleton-line 等，各详情页共享） */
 
 .loading-state,
 .error-state,
@@ -245,8 +245,6 @@ page {
 
 .theme-light .glass-card {
   background: var(--bg-glass);
-  border: 1px solid var(--color-border-glass);
-  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 .theme-light .updates-head {
@@ -282,6 +280,6 @@ page {
 }
 
 .theme-light .detail-update-node--latest {
-  background: #007aff;
-  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.35);
+  background: #3B82F6;
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.35);
 }

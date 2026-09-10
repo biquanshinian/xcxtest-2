@@ -18,10 +18,21 @@ Component({
         const result = (data && data.result) || {}
         const sc = result.structuredContent || {}
         const items = Array.isArray(sc.items) ? sc.items : []
-        this.setData({
-          title: sc.recent ? '近期发射' : `未来 ${sc.days || 7} 天发射`,
-          items
-        })
+        let title = '即将发射'
+        try {
+          const { launchCardUiText, isContentLangEn } = require('../../../../../utils/locale.js')
+          if (sc.recent) {
+            title = launchCardUiText('recentLaunches')
+          } else {
+            const days = sc.days || 7
+            title = isContentLangEn()
+              ? `Next ${days} days`
+              : `未来 ${days} 天发射`
+          }
+        } catch (e) {
+          title = sc.recent ? '近期发射' : `未来 ${sc.days || 7} 天发射`
+        }
+        this.setData({ title, items })
       })
     }
   },

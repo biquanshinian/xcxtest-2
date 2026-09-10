@@ -39,6 +39,8 @@ module.exports = [
       '**/build/**',
       '**/miniprogram_npm/**',
       '**/*.min.js',
+      'subpackages/rocket-3d/lib/**',
+      'tools/rocket-3d-bundle/**',
       'admin-web/**',
       'workers/**'
     ]

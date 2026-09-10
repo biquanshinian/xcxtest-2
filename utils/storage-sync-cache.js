@@ -20,7 +20,7 @@ const HOT_SYNC_KEYS = [
   '_user_behavior_stats',
   '_voted_launches',
   '_achievements_data',
-  'openclaw_guide_dismissed',
+  '_user_identity',
   '_briefing_progress_filter_clear',
   '_briefing_progress_filter_source',
   // 各 Tab 页 page-storage-boot warm 的 key：启动时异步预热后，
@@ -28,6 +28,8 @@ const HOT_SYNC_KEYS = [
   '_membership_state',
   '_user_preferences',
   '_progress_last_viewed',
+  '_event_updates_feed_seen_at',
+  '_event_feed_media_filter',
   '_event_updates_local_cache',
   'mission_detail_cache',
   '_milestone_config_cache_v2',
@@ -35,6 +37,7 @@ const HOT_SYNC_KEYS = [
   '_knowledge_cards_cache',
   // news 页 onShow / 首屏
   '_articles_nav_ack_manual_updated_at',
+  '_photos_nav_ack_latest_at',
   'news_cache_articles_v5',
   'news_cache_events_v2',
   // nasa-float（挂在全部 Tab 页）
@@ -44,7 +47,10 @@ const HOT_SYNC_KEYS = [
   '_float_lunar_count',
   // popup-ad 频控（各 Tab 页 onShow 触发）
   '_popup_ad_shown_by_day',
-  '_popup_ad_protect_anchor_ts'
+  '_popup_ad_protect_anchor_ts',
+  // 主题 / 火箭配置图艺术风格：onLaunch 异步预热后，首屏不再 getStorageSync
+  '_app_theme',
+  '_rocket_config_art'
 ]
 
 const HOT_SYNC_FALLBACKS = {
@@ -55,18 +61,21 @@ const HOT_SYNC_FALLBACKS = {
   '_user_behavior_stats': {},
   '_voted_launches': {},
   '_achievements_data': {},
-  'openclaw_guide_dismissed': false,
+  '_user_identity': {},
   '_briefing_progress_filter_clear': '',
   '_briefing_progress_filter_source': '',
   '_membership_state': null,
   '_user_preferences': null,
   '_progress_last_viewed': 0,
+  '_event_updates_feed_seen_at': 0,
+  '_event_feed_media_filter': 'all',
   '_event_updates_local_cache': null,
   'mission_detail_cache': {},
   '_milestone_config_cache_v2': [],
   '_milestone_claims_cache': [],
   '_knowledge_cards_cache': null,
   '_articles_nav_ack_manual_updated_at': 0,
+  '_photos_nav_ack_latest_at': 0,
   'news_cache_articles_v5': null,
   'news_cache_events_v2': null,
   '_float_visit_astro': '',
@@ -74,7 +83,9 @@ const HOT_SYNC_FALLBACKS = {
   '_float_lunar_cache': null,
   '_float_lunar_count': 0,
   '_popup_ad_shown_by_day': null,
-  '_popup_ad_protect_anchor_ts': 0
+  '_popup_ad_protect_anchor_ts': 0,
+  '_app_theme': 'system',
+  '_rocket_config_art': 'original'
 }
 
 function _isDevEnv() {

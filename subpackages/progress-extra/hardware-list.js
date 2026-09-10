@@ -7,6 +7,12 @@ const { getStarshipHardwareFromDB } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { isCollectionFavorite, toggleCollection, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  pickHardwareShareImageUrl,
+  pickHardwareShareSourceForDownload
+} = require('./utils/hardware-share-image.js')
+const { ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -61,7 +67,10 @@ Page({
     category: 'all',
     keyword: '',
     list: [],
-    totalCount: 0
+    totalCount: 0,
+    isFavorited: false,
+    favAnimate: false,
+    shareImage: ''
   },
 
   onLoad(options) {
@@ -74,8 +83,16 @@ Page({
       ? options.category
       : 'all'
     const keyword = options && options.keyword ? decodeURIComponent(options.keyword) : ''
-    this.setData({ category, keyword })
+    this.setData({
+      category,
+      keyword,
+      isFavorited: isCollectionFavorite('hardware_list')
+    })
     this.loadList()
+  },
+
+  onShow() {
+    syncFavoriteState(this, 'collection', 'hardware_list')
   },
 
   async loadList(skipCache) {
@@ -109,6 +126,17 @@ Page({
       filtered = filtered.filter((v) => v.searchKey.indexOf(keyword) >= 0)
     }
     this.setData({ list: filtered, totalCount: filtered.length })
+    this._syncShareImage(filtered[0])
+  },
+
+  _syncShareImage(item) {
+    const opts = {
+      displayImage: item && item.displayImage,
+      rawImage: item && (item.image || item.displayImage)
+    }
+    const url = pickHardwareShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickHardwareShareSourceForDownload(opts))
   },
 
   onCategoryTap(e) {
@@ -164,20 +192,35 @@ Page({
     return params.join('&')
   },
 
+  onToggleFavorite() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleCollection('hardware_list')
+    pulseFavAnimate(this, favorited)
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+  },
+
   onShareAppMessage() {
     const query = this._buildShareQuery()
     return {
       title: 'SpaceX 星舰硬件设施 | 火星探索日志',
       path: '/subpackages/progress-extra/hardware-list' + (query ? '?' + query : ''),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: this._buildShareImage()
     }
+  },
+
+  _buildShareImage() {
+    const item = this.data.list[0]
+    return pageShareImage(this, {}) || pickHardwareShareImageUrl({
+      displayImage: item && item.displayImage,
+      rawImage: item && (item.image || item.displayImage)
+    })
   },
 
   onShareTimeline() {
     return {
       title: 'SpaceX 星舰硬件设施 | 火星探索日志',
       query: this._buildShareQuery(),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: this._buildShareImage()
     }
   }
 })

@@ -1,4 +1,5 @@
 const pageBase = require('../../utils/page-base.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -10,6 +11,7 @@ Page({
     missions: [],
     discussionTopic: '',
     navTitle: '历史任务',
+    shareImage: SHARE_THUMB_FALLBACK,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     menuButtonWidth: 88
@@ -17,6 +19,7 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     var serial = options.serial ? decodeURIComponent(options.serial) : ''
     var currentLaunchId = options.currentLaunchId ? decodeURIComponent(options.currentLaunchId) : ''
 
@@ -39,12 +42,14 @@ Page({
     var docId = serial.replace(/[^a-zA-Z0-9_-]/g, '_')
 
     db.collection('booster_genealogy').doc(docId).get().then(function (res) {
-      var history = (res && res.data && Array.isArray(res.data.flightHistory)) ? res.data.flightHistory : []
+      var doc = (res && res.data) || {}
+      var history = Array.isArray(doc.flightHistory) ? doc.flightHistory : []
       if (history.length === 0) {
         self.setData({ loading: false, errorMessage: '暂无 ' + serial + ' 的历史任务数据' })
         return
       }
 
+      var failWord = (String(doc.countryCode || '').toUpperCase() === 'CN') ? '失利' : '失败'
       var missions = []
       for (var i = 0; i < history.length; i++) {
         var h = history[i]
@@ -58,7 +63,7 @@ Page({
           name: h.mission || h.name || '未知任务',
           net: h.date || '',
           date: self._fmtDate(h.date),
-          statusText: isFailed ? '失败' : '成功',
+          statusText: isFailed ? failWord : '成功',
           statusClass: isFailed ? 'fail' : 'success',
           statusIcon: isFailed ? '✗' : '✓',
           hasDetailLink: !!missionId,
@@ -97,14 +102,16 @@ Page({
   onShareAppMessage() {
     return {
       title: this.data.serial + ' 历史任务 | 火星探索日志',
-      path: '/subpackages/monitor-pages/booster-history?serial=' + encodeURIComponent(this.data.serial)
+      path: '/subpackages/monitor-pages/booster-history?serial=' + encodeURIComponent(this.data.serial),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this.data.serial + ' 历史任务 | 火星探索日志',
-      query: 'serial=' + encodeURIComponent(this.data.serial)
+      query: 'serial=' + encodeURIComponent(this.data.serial),
+      imageUrl: pageShareImage(this)
     }
   }
 })

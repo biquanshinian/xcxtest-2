@@ -1,0 +1,9 @@
+{
+  "name": "oaAuthorTrack",
+  "version": "1.0.0",
+  "description": "公众号外站作者 RSS 追踪入库",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

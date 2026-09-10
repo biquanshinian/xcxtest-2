@@ -22,6 +22,7 @@ export const PATH_MODULE_MAP = {
   '/push-notify':            'launch_subscriptions',
   '/launch-votes':           'launch_votes',
   '/lunar-wishes':           'lunar_wishes',
+  '/astro-photos':           'astro_photos',
   '/road-closure':           'road_closure_notice',
   '/milestone-rewards':      'milestone_rewards',
   '/announcements':          'announcements'
@@ -70,6 +71,7 @@ export function useMenuUnread() {
 
   function startTimer() {
     if (pollTimer || disposed) return
+    if (!localStorage.getItem('admin_token')) return
     pollTimer = setInterval(refresh, POLL_INTERVAL)
   }
 
@@ -82,6 +84,7 @@ export function useMenuUnread() {
 
   async function refresh() {
     if (disposed) return
+    if (!localStorage.getItem('admin_token')) return
     try {
       const lastReadMap = readLastReadMap()
       const data = await api.getMenuUnread(lastReadMap, ALL_MODULES)

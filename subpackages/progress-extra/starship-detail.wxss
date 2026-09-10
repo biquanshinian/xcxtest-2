@@ -1,12 +1,12 @@
-/* starship-detail.wxss —— 星舰组合体进展详情页（视觉与原半屏弹窗一致） */
+/* starship-detail.wxss —— 星舰载具（飞船/助推器）详情页，硬件库未匹配到编号时的兜底页 */
 page {
-  background: #000;
+  background: #0B0C0E;
   color: #fff;
 }
 
 .detail-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
 }
 
 .detail-scroll {
@@ -36,14 +36,14 @@ page {
 }
 .error-btn {
   font-size: 28rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   padding: 12rpx 40rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 999rpx;
 }
 
 .detail-body {
-  padding: 20rpx 32rpx 0;
+  padding: var(--space-md) var(--space-lg) 0;
 }
 
 /* 状态 + 标题 */
@@ -95,12 +95,22 @@ page {
   margin-bottom: 24rpx;
 }
 
-/* 简介图片：随图片自身比例显示（与任务详情页头图一致），不固定尺寸裁切 */
+/* 出框悬浮统一参数适配：detail-body 横向内衬 36rpx，全局 flush 的 -16rpx
+ * 落点正好 = 36 - 16 = 20rpx 屏边，横向无需覆盖（总宽 710rpx，未超视口）。
+ * 头图上方还有状态行/标题/简介文字（非容器第一个元素），-32rpx 上浮会与
+ * 上一段负外边距折叠叠进文字，覆盖 margin-top: 0 保持正常间距（不上浮，
+ * 与 detail-summary 的 24rpx 下边距衔接）。 */
+.detail-body .hero-float--flush {
+  margin-top: 0;
+}
+
+/* 简介图片：随图片自身比例显示（与任务详情页头图一致），不固定尺寸裁切；
+ * 外边距/下探叠层由 hero-float 承担，圆角与全局 hero-float-card 对齐 */
 .detail-hero-wrap {
   width: 100%;
-  border-radius: 18rpx;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-bottom: 28rpx;
+  margin-bottom: 0;
   background: transparent;
   font-size: 0;
   line-height: 0;
@@ -113,9 +123,8 @@ page {
 
 /* 贴图讨论区 */
 .glass-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 24rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 .discussion-section {
@@ -142,7 +151,6 @@ page {
   padding: 24rpx;
   background: rgba(255, 255, 255, 0.04);
   border-radius: 24rpx;
-  border: 1px solid rgba(52, 199, 89, 0.85);
   min-height: 240rpx;
 }
 .checklist-status-normal {
@@ -197,15 +205,12 @@ page {
 /* 简介图片占位深底保持不动（detail-hero-img 底色仅在照片加载前可见） */
 .theme-light .glass-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .checklist-heading {
   color: var(--color-text-primary);
 }
 .theme-light .checklist-item {
   background: var(--color-bg-card);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .checklist-item-title {
   color: var(--color-text-primary);

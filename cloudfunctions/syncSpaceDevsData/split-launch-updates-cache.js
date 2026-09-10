@@ -5,6 +5,8 @@
  * 全局 GET /updates/ 列表不含 launch 关联，冷路径只能靠
  * upcoming/previous detailed 嵌套的 updates（6h syncLaunches）。
  */
+const { translateUpdateComment } = require('./ll2-updates-i18n.js')
+
 const UPDATES_PER_LAUNCH_MAX = 40
 const SPLIT_CACHE_TTL_MS = 48 * 60 * 60 * 1000
 
@@ -12,9 +14,11 @@ function normalizeUpdateRow(u) {
   if (!u || typeof u !== 'object') return null
   const comment = String(u.comment || '').trim()
   if (!comment) return null
+  const storedZh = String(u.commentZh || '').trim()
   return {
     id: u.id != null ? u.id : null,
     comment,
+    commentZh: storedZh || translateUpdateComment(comment),
     infoUrl: typeof u.info_url === 'string' ? u.info_url.trim()
       : (typeof u.infoUrl === 'string' ? u.infoUrl.trim() : ''),
     createdOn: u.created_on || u.createdOn || '',
@@ -32,6 +36,7 @@ function slimLaunchUpdates(raw) {
     out.push({
       id: row.id,
       comment: row.comment,
+      commentZh: row.commentZh || '',
       info_url: row.infoUrl,
       created_by: row.createdBy,
       created_on: row.createdOn
@@ -53,8 +58,12 @@ function mergeUpdateLists(primary, secondary) {
         byKey.set(key, n)
         continue
       }
+      if (!prev.commentZh && n.commentZh) prev.commentZh = n.commentZh
       // 保留信息更全的一条
-      if (!prev.infoUrl && n.infoUrl) byKey.set(key, n)
+      if (!prev.infoUrl && n.infoUrl) {
+        n.commentZh = n.commentZh || prev.commentZh
+        byKey.set(key, n)
+      }
     }
   }
   push(primary)

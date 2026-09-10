@@ -258,7 +258,10 @@ async function drawBriefingPoster(canvas, data, width, height) {
     ctx.fillStyle = '#FFFFFF'
     ctx.font = '12px sans-serif'
     data.results.slice(0, 2).forEach(function (r) {
-      var statusText = r.status === 'success' ? '成功' : '失败'
+      var isCn = /中国|长征|朱雀|快舟|引力|谷神星|双曲线|捷龙|天龙|力箭|long march|zhuque|kuaizhou/i.test(
+        String((r && (r.rocket || r.country || r.agency)) || '')
+      )
+      var statusText = r.status === 'success' ? '成功' : (isCn ? '失利' : '失败')
       ctx.fillText((r.rocket || '') + ' - ' + statusText, 36, y)
       y += 20
     })

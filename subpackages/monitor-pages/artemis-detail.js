@@ -1,7 +1,7 @@
 const pageBase = require('../../utils/page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
 const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, playEventVideo } = require('../../utils/event-video.js')
+const { enrichVideoMediaItem, playEventVideo } = require('./utils/event-video.js')
 const {
   fetchArtemisIiBriefing,
   shouldShowArtemisArowSection,
@@ -12,6 +12,7 @@ const {
 const {
   artemisArow: ARTEMIS_CFG
 } = require('../../utils/config.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 // stub — filled below
 const pad2 = (n) => String(n).padStart(2, '0')
@@ -48,6 +49,8 @@ Page({
   data: {
     loading: true,
     errorMsg: '',
+    shareImage: SHARE_THUMB_FALLBACK,
+    navTitle: 'Artemis II 实时遥测',
     missionPhase: 'active',
     missionSummary: null,
     met: '—',
@@ -80,6 +83,7 @@ Page({
 
   onLoad() {
     this.initUiShell()
+    bootPageShareThumb(this)
     const phase = getArtemisMissionPhase()
     this.setData({
       missionPhase: phase
@@ -179,10 +183,11 @@ Page({
 
   async _loadEventVideoConfig() {
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('global_config').doc('main').get()
-      const cfg = res && res.data ? res.data : null
-      if (cfg) {
+      // 走 feature-flags 的 global_config/main 共享缓存（5 分钟 + inflight 去重），
+      // 避免每次进页直读一次云库同一文档
+      const { fetchMainConfig } = require('../../utils/feature-flags.js')
+      const cfg = await fetchMainConfig()
+      if (cfg && cfg._id) {
         this.setData({ enableEventVideo: cfg.enableEventVideo !== false })
       }
     } catch (e) {}
@@ -538,13 +543,15 @@ Page({
   onShareAppMessage() {
     return {
       title: 'Artemis II 实时遥测 | 火星探索日志',
-      path: '/subpackages/monitor-pages/artemis-detail'
+      path: '/subpackages/monitor-pages/artemis-detail',
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
-      title: 'Artemis II 实时遥测 | 火星探索日志'
+      title: 'Artemis II 实时遥测 | 火星探索日志',
+      imageUrl: pageShareImage(this)
     }
   }
 })

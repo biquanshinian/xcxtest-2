@@ -7,11 +7,22 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
-const { enrichSingleLaunch } = require('./ll2-translate-enrich.js')
+const { enrichSingleLaunch, repairExistingLaunchZhTitles, hasMissingLandingDescriptionZh, applyLaunchDictionariesOnly } = require('./ll2-translate-enrich.js')
 const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
 const { translateTextsBatch, isTmtConfigured, runTranslateDiag } = require('./translate.js')
+const { enrichLaunchUpdatesI18n, updatesNeedZh, translateUpdateComment } = require('./ll2-updates-i18n.js')
 const { createLaunchStatusStore, normalize: normalizeLaunchStatus } = require('./launch-status-store.js')
 const launchStatusStore = createLaunchStatusStore(db)
+const { createUpcomingCachePatcher } = require('./upcoming-cache-patch.js')
+const upcomingCachePatcher = createUpcomingCachePatcher(db)
+const { listRecentNetChangesAction } = require('./recent-net-changes.js')
+const {
+  applyLaunchIdentityUpgrade,
+  hasWeakLaunchIdentity,
+  alignLaunchIdentityFromTitle,
+  detailCacheTtlMs,
+  shouldRefreshCachedLaunchIdentity
+} = require('./launch-identity-upgrade.js')
 
 const httpsRequire = require('https')
 const httpRequire = require('http')
@@ -27,59 +38,21 @@ const UPDATES_CACHE_TTL_HOT = 10 * 60 * 1000
 const UPDATES_CACHE_TTL_COLD = 48 * 60 * 60 * 1000
 const STARSHIP_DB_CACHE_TTL = 60 * 60 * 1000
 
-const LL2_USAGE_DOC = '_ll2_usage_hourly'
-let _ll2UsageBucket = ''
-let _ll2UsageCount = 0
-let _ll2UsageFlushAt = 0
-
+const { ll2BudgetHourBucket, recordLl2Request } = require('./ll2-budget.js')
 function ll2HourBucket(nowMs) {
-  const d = new Date(nowMs || Date.now())
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  const h = String(d.getUTCHours()).padStart(2, '0')
-  return `${y}${m}${day}T${h}`
-}
-
-function isLl2TokenConfigured() {
-  const token = typeof process.env.LL2_API_TOKEN === 'string' ? process.env.LL2_API_TOKEN.trim() : ''
-  return !!(token && token !== 'FILL_ME')
+  return ll2BudgetHourBucket(nowMs)
 }
 
 function noteLl2Request(source) {
   try {
-    const now = Date.now()
-    const bucket = ll2HourBucket(now)
-    if (_ll2UsageBucket !== bucket) {
-      _ll2UsageBucket = bucket
-      _ll2UsageCount = 0
-    }
-    _ll2UsageCount += 1
-    if (_ll2UsageCount % 5 !== 0 && now - _ll2UsageFlushAt < 60 * 1000) return
-    _ll2UsageFlushAt = now
-    const authed = isLl2TokenConfigured()
-    db.collection(TIMELINE_CACHE_COL)
-      .doc(LL2_USAGE_DOC)
-      .set({
-        data: {
-          hourUtc: bucket,
-          count: _ll2UsageCount,
-          authed,
-          source: source || 'll2Query',
-          updatedAtMs: now
-        }
-      })
-      .catch(() => {})
-    if (!authed && _ll2UsageCount >= 10) {
-      console.warn(
-        '[LL2] anonymous hour usage high:',
-        _ll2UsageCount,
-        'bucket=',
-        bucket,
-        '— set LL2_API_TOKEN in cloud env'
-      )
-    }
-  } catch (e) {}
+    // 唯一账本：launch_timeline_cache/_ll2_budget_hourly（与 syncSpaceDevsData / getLaunchStats 共用）
+    recordLl2Request(db, source || 'll2Query').catch(() => {})
+  } catch (eBudget) {}
+}
+
+/** slim upcoming 只允许 sync 6h 全量 + 小时探针写；本函数只写 launch_status / 本地结果 */
+function patchUpcomingSlimFromQuery() {
+  return Promise.resolve({ skipped: true, reason: 'll2Query_no_slim_write' })
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -116,8 +89,18 @@ function fetchAPI(url) {
         data += chunk
       })
       res.on('end', () => {
+        // 只要发出了请求就记账（429 同样消耗一次尝试）
+        if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('ll2Query')
+        // 非 200 显式失败：429 的 { detail } body 不能被当成「成功但无 results」，
+        // 调用方（fetchLaunchStatuses 等）的失败记忆/stale 回落依赖 reject 语义
+        if (res.statusCode !== 200) {
+          const httpErr = new Error(`HTTP ${res.statusCode}: ${String(data).slice(0, 200)}`)
+          httpErr.statusCode = res.statusCode
+          if (res.statusCode === 429 || /throttl/i.test(String(data))) httpErr.code = 'LL2_RATE_LIMIT'
+          reject(httpErr)
+          return
+        }
         try {
-          if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('ll2Query')
           resolve(JSON.parse(data))
         } catch (e) {
           reject(new Error('JSON parse error: ' + e.message))
@@ -290,6 +273,23 @@ async function resolveLaunchIdForLl2Progress(event) {
   }
 }
 
+async function ensureLaunchUpdatesZh(list) {
+  const rows = Array.isArray(list) ? list : []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row || !row.comment) continue
+    if (!row.commentZh) row.commentZh = translateUpdateComment(row.comment)
+  }
+  if (!updatesNeedZh(rows)) return rows
+  try {
+    await Promise.race([
+      enrichLaunchUpdatesI18n(rows, rows),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('updates_i18n_timeout')), 4000))
+    ])
+  } catch (e) {}
+  return rows
+}
+
 // ══════════════════════════════════════════════════════════════
 // Action: fetchLaunchUpdates
 // ══════════════════════════════════════════════════════════════
@@ -343,14 +343,21 @@ async function fetchLaunchUpdatesAction(event) {
               ])
             } catch (e) {}
           }
+          const missingZh = updatesNeedZh(list)
+          const zhList = await ensureLaunchUpdatesZh(list)
+          if (missingZh && zhList.some((u) => u && u.commentZh)) {
+            try {
+              await db.collection(TIMELINE_CACHE_COL).doc(updatesCacheId).update({ data: { data: zhList } })
+            } catch (e2) {}
+          }
           return {
             success: true,
             launchId,
             autoResolved: resolved.autoResolved,
             resolvedSource: resolved.resolvedSource,
             resolvedLaunchName: resolved.resolvedLaunchName,
-            totalCount: cached.totalCount || list.length,
-            list,
+            totalCount: cached.totalCount || zhList.length,
+            list: zhList,
             outcome: cachedOutcome || null,
             fromCache: true,
             cacheTier: age < UPDATES_CACHE_TTL_HOT ? 'hot' : 'cold',
@@ -373,13 +380,15 @@ async function fetchLaunchUpdatesAction(event) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 updates 请求超时')), 15000))
     ])
     const results = Array.isArray(apiData && apiData.results) ? apiData.results : []
-    const list = results.map((u) => ({
-      id: u.id,
-      comment: String(u.comment || ''),
-      infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
-      createdOn: u.created_on || '',
-      createdBy: String(u.created_by || '')
-    }))
+    const list = await ensureLaunchUpdatesZh(
+      results.map((u) => ({
+        id: u.id,
+        comment: String(u.comment || ''),
+        infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
+        createdOn: u.created_on || '',
+        createdBy: String(u.created_by || '')
+      }))
+    )
 
     // 写入缓存
     try {
@@ -542,10 +551,16 @@ async function fetchLaunchTimelineAction(event) {
 // 终态 settle 每个热实例每任务只需一次：终态不会再变，
 // 此前每次缓存命中都 await 一轮 launch_status 读写，白白拖慢命中路径
 const _detailSettleDone = new Set()
+const _landingZhTried = new Set()
 
 function markDetailSettled(launchId) {
   if (_detailSettleDone.size > 500) _detailSettleDone.clear()
   _detailSettleDone.add(String(launchId))
+}
+
+function markLandingZhTried(launchId) {
+  if (_landingZhTried.size > 500) _landingZhTried.clear()
+  _landingZhTried.add(String(launchId))
 }
 
 function isTerminalLaunchDetail(detail) {
@@ -553,8 +568,91 @@ function isTerminalLaunchDetail(detail) {
   return !!TERMINAL_STATUS_IDS[sid]
 }
 
+/**
+ * 详情缓存可能仍是发射前 Go；若 launch_status 已是飞行中/终态，用 store 覆盖返回 status，
+ * 避免详情角标「就绪」与历史卡「飞行中」分裂。不回写详情缓存正文（等 TTL / 强制刷新）。
+ */
+/**
+ * 详情确认的 NET/status 回写 upcoming slim，治愈列表「8/31+待定」与详情「就绪」分裂。
+ * 走与小时探针同一套 NET 迟滞；失败不阻塞详情响应。
+ */
+async function healUpcomingFromDetail(detail) {
+  if (!detail || detail.id == null || !detail.status) return null
+  const sid = detail.status.id != null ? Number(detail.status.id) : 0
+  // 仅用非终态详情治愈列表（终态由 settle/previous 路径处理）
+  if (TERMINAL_STATUS_IDS[sid]) return null
+  const liveRow = {
+    id: detail.id,
+    name: typeof detail.name === 'string' ? detail.name : '',
+    net: detail.net || '',
+    window_start: detail.window_start || '',
+    window_end: detail.window_end || '',
+    status: {
+      id: detail.status.id,
+      name: detail.status.name || '',
+      abbrev: detail.status.abbrev || ''
+    },
+    mission: detail.mission || undefined,
+    rocket: detail.rocket || undefined
+  }
+  try {
+    // 同步治愈 launch_status：否则首页下拉 3s 后的 getLaunchStatusSnapshot
+    // 仍吐旧 8/31+待定，客户端会 _applyPostponedNet 把倒计时顶回其它任务。
+    await launchStatusStore.upsertOne(
+      {
+        id: String(detail.id),
+        name: liveRow.name,
+        net: liveRow.net,
+        windowStart: liveRow.window_start,
+        windowEnd: liveRow.window_end,
+        status: liveRow.status
+      },
+      { source: 'fetchLaunchDetail_status', observedAtMs: Date.now() }
+    )
+  } catch (eUpsert) {
+    console.warn('[healUpcomingFromDetail] launch_status', eUpsert.message || eUpsert)
+  }
+  try {
+    return await patchUpcomingSlimFromQuery([liveRow])
+  } catch (e) {
+    console.warn('[healUpcomingFromDetail]', e.message || e)
+    return null
+  }
+}
+
+async function overlayDetailStatusFromLaunchStore(detail, launchId) {
+  if (!detail || !launchId) return false
+  let rows = []
+  try {
+    rows = await launchStatusStore.getByIds([String(launchId)])
+  } catch (e) {
+    return false
+  }
+  const stored = rows && rows[0]
+  if (!stored || !stored.status) return false
+  const storeSid = stored.status.id != null ? Number(stored.status.id) : 0
+  const cacheSid = detail.status && detail.status.id != null ? Number(detail.status.id) : 0
+  const storeSettled = !!TERMINAL_STATUS_IDS[storeSid] || storeSid === INFLIGHT_STATUS_ID
+  const cacheSettled = !!TERMINAL_STATUS_IDS[cacheSid] || cacheSid === INFLIGHT_STATUS_ID
+  const storeTerminal = !!TERMINAL_STATUS_IDS[storeSid]
+  const cacheTerminal = !!TERMINAL_STATUS_IDS[cacheSid]
+  const shouldOverlay =
+    (storeSettled && !cacheSettled) || (storeTerminal && !cacheTerminal && cacheSid === INFLIGHT_STATUS_ID)
+  if (!shouldOverlay) return false
+  detail.status = {
+    id: stored.status.id,
+    name: stored.status.name || '',
+    abbrev: stored.status.abbrev || ''
+  }
+  if (stored.net) detail.net = stored.net
+  if (stored.windowStart) detail.window_start = stored.windowStart
+  if (stored.windowEnd) detail.window_end = stored.windowEnd
+  return true
+}
+
 async function fetchLaunchDetailAction(event) {
   const startTime = Date.now()
+  let staleIdentityFallback = null
   try {
     const launchId = event && event.launchId
     if (!launchId || typeof launchId !== 'string') {
@@ -572,13 +670,31 @@ async function fetchLaunchDetailAction(event) {
         const doc = await db.collection('space_devs_cache').doc(detailCacheKey).get()
         const cached = doc && doc.data && doc.data.data
         if (cached && cached.data && cached.expireAt && cached.expireAt > now) {
-          // 旧缓存可能仍是 Ocean/ASDS：读出时就地 enrich，必要时回写，避免等 TTL
+          // 旧缓存可能仍是 Ocean/ASDS 或机翻错名：读出时就地 enrich，必要时只回写本条详情。
+          // 不要在这里改 upcoming 列表 nameZh（那是 syncSpaceDevsData 单写者）。
           const detail = cached.data
-          let netPatched = false
+          let cacheDirty = false
           try {
-            netPatched = !!enrichLaunchNetRecovery(detail)
+            cacheDirty = !!enrichLaunchNetRecovery(detail)
           } catch (e) {}
-          if (netPatched) {
+          try {
+            if (repairExistingLaunchZhTitles(detail)) cacheDirty = true
+          } catch (e) {}
+          try {
+            if (applyLaunchDictionariesOnly(detail)) cacheDirty = true
+          } catch (e) {}
+          try {
+            const launchKey = String(launchId)
+            if (hasMissingLandingDescriptionZh(detail) && !_landingZhTried.has(launchKey)) {
+              markLandingZhTried(launchKey)
+              await Promise.race([
+                enrichSingleLaunch(detail),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('landing_zh_timeout')), 3500))
+              ])
+              if (!hasMissingLandingDescriptionZh(detail)) cacheDirty = true
+            }
+          } catch (e) {}
+          if (cacheDirty) {
             try {
               await db
                 .collection('space_devs_cache')
@@ -593,15 +709,84 @@ async function fetchLaunchDetailAction(event) {
                 })
             } catch (e) {}
           }
-          // 缓存命中也顺带把终态回写 recent_settled / previous（0 额外 LL2）；
-          // 终态不可变，同实例只做一次，后续命中直接返回不再拖 settle 读写
+
+          const cacheAge = now - (Number((doc.data && doc.data.updatedAtMs) || 0) || 0)
+          const wantIdentityRefresh = shouldRefreshCachedLaunchIdentity(detail, { cacheAge }, now)
+          let bypassStaleIdentity = false
+          if (wantIdentityRefresh) {
+            try {
+              const granted = await acquireResolveBudget(1)
+              if (granted > 0) bypassStaleIdentity = true
+            } catch (e) {}
+          }
+          if (bypassStaleIdentity) {
+            // 占位/近窗终态：不信 7 天 TTL，落到下方 LL2 详情；失败再退回这份缓存
+            staleIdentityFallback = detail
+          } else {
+          // 缓存命中：仅终态 settle 写库（同实例一次）。飞行中只靠 overlay 对齐角标，
+          // 禁止用可能陈旧的「飞行中」详情缓存反复 upsert，否则会刷新 observedAtMs、压住后续终态。
           if (isTerminalLaunchDetail(detail) && !_detailSettleDone.has(String(launchId))) {
             try {
               await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_cached')
             } catch (e) {}
             markDetailSettled(launchId)
           }
+          try {
+            await overlayDetailStatusFromLaunchStore(detail, launchId)
+          } catch (e) {}
+          try {
+            await healUpcomingFromDetail(detail)
+          } catch (e) {}
+
+          // 时序闭环：NET 已过但详情缓存仍是 Go，且 store 也 overlay 不上 →
+          // 不信 3.5h 长 TTL，用 mode=list 轻量补 status（受 resolve 小时额度约束）。
+          const sidAfter = detail.status && detail.status.id != null ? Number(detail.status.id) : 0
+          const settledAfter =
+            !!TERMINAL_STATUS_IDS[sidAfter] || sidAfter === INFLIGHT_STATUS_ID
+          const netMs = detail.net ? new Date(detail.net).getTime() : NaN
+          const netPassed = Number.isFinite(netMs) && netMs <= now - 60 * 1000
+          if (!settledAfter && netPassed) {
+            try {
+              const granted = await acquireResolveBudget(1)
+              if (granted > 0) {
+                const live = await fetchLaunchStatusSingleFlight(launchId)
+                if (live && live.status) {
+                  detail.status = {
+                    id: live.status.id,
+                    name: live.status.name || '',
+                    abbrev: live.status.abbrev || ''
+                  }
+                  if (live.net) detail.net = live.net
+                  if (live.window_start) detail.window_start = live.window_start
+                  if (live.window_end) detail.window_end = live.window_end
+                  const liveSid = live.status.id != null ? Number(live.status.id) : 0
+                  if (TERMINAL_STATUS_IDS[liveSid] || liveSid === INFLIGHT_STATUS_ID) {
+                    try {
+                      await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_net_past_refresh')
+                    } catch (e) {}
+                    if (TERMINAL_STATUS_IDS[liveSid]) markDetailSettled(launchId)
+                  }
+                  const nextExpire = now + detailCacheTtlMs(detail, now, {})
+                  try {
+                    await db
+                      .collection('space_devs_cache')
+                      .doc(detailCacheKey)
+                      .set({
+                        data: {
+                          cacheKey: detailCacheKey,
+                          data: { data: detail, expireAt: nextExpire },
+                          updatedAt: db.serverDate(),
+                          updatedAtMs: now
+                        }
+                      })
+                  } catch (e) {}
+                }
+              }
+            } catch (e) {}
+          }
+
           return { success: true, cached: true, data: detail, timestamp: now, elapsed: Date.now() - startTime }
+          }
         }
       } catch (_) {}
     }
@@ -613,6 +798,16 @@ async function fetchLaunchDetailAction(event) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 详情接口超时')), 18000))
     ])
     if (!apiData || !apiData.id) {
+      if (staleIdentityFallback) {
+        return {
+          success: true,
+          cached: true,
+          staleFallback: true,
+          data: staleIdentityFallback,
+          timestamp: Date.now(),
+          elapsed: Date.now() - startTime
+        }
+      }
       return {
         success: false,
         error: 'LL2 详情接口未返回有效数据',
@@ -650,13 +845,17 @@ async function fetchLaunchDetailAction(event) {
     if (Array.isArray(apiData.updates) && apiData.updates.length) {
       try {
         const mapped = apiData.updates
-          .map((u) => ({
-            id: u.id,
-            comment: String(u.comment || ''),
-            infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
-            createdOn: u.created_on || '',
-            createdBy: String(u.created_by || '')
-          }))
+          .map((u) => {
+            const comment = String(u.comment || '')
+            return {
+              id: u.id,
+              comment,
+              commentZh: String(u.commentZh || '').trim() || translateUpdateComment(comment),
+              infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
+              createdOn: u.created_on || '',
+              createdBy: String(u.created_by || '')
+            }
+          })
           .filter((u) => u.comment)
         if (mapped.length) {
           let existing = []
@@ -723,11 +922,9 @@ async function fetchLaunchDetailAction(event) {
     } catch (e) {}
     })()
 
-    // 3) 写入缓存。终态任务（成功/失败/部分失败）数据基本不再变化，
-    // TTL 拉长到 7 天，避免历史发射每 3.5 小时就重走一遍冷路径（LL2 + 翻译 + 回写）；
+    // 3) 写入缓存。旧终态可 7 天；占位载荷 / 近 48h 终态缩短 TTL，避免航行警告猜测冻死。
     // 翻译超时的缓存只给 10 分钟，尽快重试补齐中文字段
-    let CACHE_DURATION = isTerminalLaunchDetail(apiData) ? 7 * 24 * 60 * 60 * 1000 : 3.5 * 60 * 60 * 1000
-    if (translateTimedOut) CACHE_DURATION = 10 * 60 * 1000
+    const CACHE_DURATION = detailCacheTtlMs(apiData, now, { translateTimedOut })
     const cacheWritePromise = db
       .collection('space_devs_cache')
       .doc(detailCacheKey)
@@ -743,8 +940,25 @@ async function fetchLaunchDetailAction(event) {
 
     await Promise.all([sideEffectsPromise, cacheWritePromise])
 
+    try {
+      await overlayDetailStatusFromLaunchStore(apiData, launchId)
+    } catch (e) {}
+    try {
+      await healUpcomingFromDetail(apiData)
+    } catch (e) {}
+
     return { success: true, cached: false, data: apiData, timestamp: Date.now(), elapsed: Date.now() - startTime }
   } catch (e) {
+    if (staleIdentityFallback) {
+      return {
+        success: true,
+        cached: true,
+        staleFallback: true,
+        data: staleIdentityFallback,
+        timestamp: Date.now(),
+        elapsed: Date.now() - startTime
+      }
+    }
     return {
       success: false,
       error: e.message || 'fetch_launch_detail_failed',
@@ -861,12 +1075,64 @@ function slimStatusRow(r) {
 }
 
 /** 详情终态写入 previous 时的轻量 stub（足够列表 map，避免整包 detailed 过大） */
+function parseRocketNameFromLaunchName(name) {
+  const parts = String(name || '')
+    .split('|')
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+  return parts.length >= 2 ? parts[0] : ''
+}
+
+function isThinPreviousLaunchRow(row) {
+  if (!row || row.id == null) return true
+  const cfg =
+    (row.rocket && row.rocket.configuration) ||
+    (row.rocket && row.rocket.rocket && row.rocket.rocket.configuration) ||
+    null
+  const hasRocket = !!(cfg && (cfg.name || cfg.full_name))
+  const pad = row.pad
+  const hasPad = !!(pad && (pad.name || (pad.location && pad.location.name)))
+  return !hasRocket || !hasPad
+}
+
+function fillThinPreviousRow(row, stub) {
+  if (!row || !stub) return false
+  let changed = false
+  const ident = applyLaunchIdentityUpgrade(row, stub, {
+    trustIncoming: !hasWeakLaunchIdentity(stub)
+  })
+  if (ident.changed) changed = true
+  const rowThinRocket = isThinPreviousLaunchRow(row)
+  if (rowThinRocket && stub.rocket && stub.rocket.configuration && (stub.rocket.configuration.name || stub.rocket.configuration.full_name)) {
+    row.rocket = { ...(row.rocket || {}), ...stub.rocket }
+    changed = true
+  }
+  if ((!row.pad || !(row.pad.name || (row.pad.location && row.pad.location.name))) && stub.pad) {
+    row.pad = stub.pad
+    changed = true
+  }
+  if (!row.launch_service_provider && stub.launch_service_provider) {
+    row.launch_service_provider = stub.launch_service_provider
+    changed = true
+  }
+  if (!row.mission && stub.mission) {
+    row.mission = stub.mission
+    changed = true
+  }
+  if (alignLaunchIdentityFromTitle(row).changed) changed = true
+  return changed
+}
+
 function buildPreviousStubFromLaunch(launch) {
   if (!launch || !launch.id) return null
-  const cfg =
+  let cfg =
     (launch.rocket && launch.rocket.configuration) ||
     (launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration) ||
     null
+  if (!cfg || !(cfg.name || cfg.full_name)) {
+    const parsed = parseRocketNameFromLaunchName(launch.name)
+    if (parsed) cfg = { ...(cfg || {}), name: parsed, full_name: (cfg && cfg.full_name) || parsed }
+  }
   const lsp = launch.launch_service_provider || launch.lsp || null
   const pad = launch.pad || null
   return {
@@ -882,9 +1148,39 @@ function buildPreviousStubFromLaunch(launch) {
           abbrev: launch.status.abbrev || ''
         }
       : null,
-    mission: launch.mission ? { name: launch.mission.name || '', description: launch.mission.description || '' } : null,
-    rocket: cfg ? { configuration: { name: cfg.name || '', full_name: cfg.full_name || '' } } : undefined,
-    launch_service_provider: lsp ? { id: lsp.id, name: lsp.name || '', abbrev: lsp.abbrev || '' } : undefined,
+    mission: launch.mission
+      ? {
+          name: launch.mission.name || '',
+          nameZh: launch.mission.nameZh || undefined,
+          description: launch.mission.description || '',
+          descriptionZh: launch.mission.descriptionZh || undefined,
+          type: launch.mission.type || undefined,
+          orbit: launch.mission.orbit || undefined
+        }
+      : null,
+    rocket: cfg
+      ? {
+          configuration: {
+            name: cfg.name || '',
+            nameZh: cfg.nameZh || undefined,
+            full_name: cfg.full_name || '',
+            full_nameZh: cfg.full_nameZh || undefined
+          }
+        }
+      : undefined,
+    launch_service_provider: lsp
+      ? {
+          id: lsp.id,
+          name: lsp.name || '',
+          abbrev: lsp.abbrev || '',
+          logo: lsp.logo && typeof lsp.logo === 'object'
+            ? {
+                image_url: lsp.logo.image_url || '',
+                thumbnail_url: lsp.logo.thumbnail_url || ''
+              }
+            : undefined
+        }
+      : undefined,
     pad: pad
       ? {
           name: pad.name || '',
@@ -897,12 +1193,12 @@ function buildPreviousStubFromLaunch(launch) {
 }
 
 /**
- * 详情单条终态 → recent_settled + previous slim（有则改 status，无则插入头部）。
+ * 详情单条终态/飞行中 → recent_settled + previous slim（有则改 status，无则插入头部）。
  */
 async function settleTerminalFromLaunchDetail(launch, nowMs, source) {
   if (!launch || !launch.id || !launch.status) return
   const sid = launch.status.id != null ? Number(launch.status.id) : 0
-  if (!TERMINAL_STATUS_IDS[sid]) return
+  if (!TERMINAL_STATUS_IDS[sid] && sid !== INFLIGHT_STATUS_ID) return
   const now = nowMs || Date.now()
   const entry = {
     id: String(launch.id),
@@ -920,6 +1216,10 @@ async function settleTerminalFromLaunchDetail(launch, nowMs, source) {
     launchStub: buildPreviousStubFromLaunch(launch)
   }
   await launchStatusStore.upsertOne(entry, { source: source || 'detail', observedAtMs: now })
+  // 详情已 settled 时同步写入 previous，避免 hide_recent + upcoming prune 后历史列表空窗
+  try {
+    await patchPreviousCacheStatusFromTerminal([entry])
+  } catch (e) {}
 }
 
 /** previous 列表缓存 key 候选（与 syncSpaceDevsData / launch-net-hourly 对齐） */
@@ -936,24 +1236,109 @@ function previousListCacheKeyCandidates() {
 }
 
 function stubFromTerminalEntry(term) {
-  if (term && term.launchStub && term.launchStub.id) return term.launchStub
+  if (term && term.launchStub && term.launchStub.id) {
+    const stub = term.launchStub
+    // 显式字段，避免把 updates 等冷路径大字段带进 previous
+    const cfg =
+      (stub.rocket && stub.rocket.configuration) ||
+      (stub.rocket && stub.rocket.rocket && stub.rocket.rocket.configuration) ||
+      null
+    const lsp = stub.launch_service_provider || stub.lsp || null
+    const pad = stub.pad || null
+    return {
+      id: stub.id,
+      name: stub.name || term.name || '',
+      net: stub.net || term.net || '',
+      window_start: stub.window_start || term.windowStart || stub.net || term.net || '',
+      window_end: stub.window_end || term.windowEnd || '',
+      status: term.status
+        ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' }
+        : stub.status || null,
+      mission: stub.mission
+        ? {
+            name: stub.mission.name || '',
+            nameZh: stub.mission.nameZh || undefined,
+            description: stub.mission.description || '',
+            descriptionZh: stub.mission.descriptionZh || undefined,
+            type: stub.mission.type || undefined,
+            orbit: stub.mission.orbit || undefined
+          }
+        : null,
+      rocket: stub.rocket
+        ? {
+            configuration: cfg
+              ? {
+                  id: cfg.id,
+                  name: cfg.name || '',
+                  nameZh: cfg.nameZh || undefined,
+                  full_name: cfg.full_name || '',
+                  full_nameZh: cfg.full_nameZh || undefined,
+                  reusable: cfg.reusable === true || undefined
+                }
+              : undefined,
+            launcher_stage: stub.rocket.launcher_stage,
+            spacecraft_stage: stub.rocket.spacecraft_stage
+          }
+        : undefined,
+      launch_service_provider: lsp
+        ? { id: lsp.id, name: lsp.name || '', abbrev: lsp.abbrev || '' }
+        : undefined,
+      pad: pad
+        ? {
+            name: pad.name || '',
+            location: pad.location
+              ? { name: pad.location.name || '', country_code: pad.location.country_code || '' }
+              : undefined
+          }
+        : undefined,
+      image: stub.image || undefined,
+      infographic: stub.infographic || undefined
+    }
+  }
+  const parsedRocket = parseRocketNameFromLaunchName(term.name)
   return {
     id: term.id,
     name: term.name || '',
     net: term.net || '',
     window_start: term.windowStart || term.net || '',
     window_end: term.windowEnd || '',
-    status: term.status ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' } : null
+    status: term.status ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' } : null,
+    rocket: parsedRocket
+      ? { configuration: { name: parsedRocket, full_name: parsedRocket } }
+      : undefined
   }
 }
 
-/** 用终态改 previous 云缓存；同 id 不存在则插入首批头部（避免详情已终态、列表刷新消失） */
+async function enrichTerminalEntriesFromUpcomingCache(entries) {
+  if (!Array.isArray(entries) || !entries.length) return 0
+  if (!upcomingCachePatcher || typeof upcomingCachePatcher.findRowsByIds !== 'function') return 0
+  const need = entries.filter((e) => e && e.id && isThinPreviousLaunchRow(e.launchStub || null))
+  if (!need.length) return 0
+  const found = await upcomingCachePatcher.findRowsByIds(need.map((e) => e.id))
+  if (!found || !found.size) return 0
+  let n = 0
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (!entry || !entry.id) continue
+    const cached = found.get(String(entry.id))
+    if (!cached) continue
+    if (entry.launchStub && !isThinPreviousLaunchRow(entry.launchStub)) continue
+    entry.launchStub = buildPreviousStubFromLaunch(cached)
+    if (entry.launchStub) n++
+  }
+  return n
+}
+
+/** 用终态/飞行中改 previous 云缓存；同 id 不存在则插入首批头部（避免详情已 settled、列表刷新消失） */
 async function patchPreviousCacheStatusFromTerminal(entries) {
   if (!Array.isArray(entries) || !entries.length) return { patched: 0 }
   const byId = new Map()
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]
-    if (e && e.id && e.status) byId.set(String(e.id), e)
+    if (!e || !e.id || !e.status) continue
+    const sid = e.status.id != null ? Number(e.status.id) : 0
+    if (!TERMINAL_STATUS_IDS[sid] && sid !== INFLIGHT_STATUS_ID) continue
+    byId.set(String(e.id), e)
   }
   if (!byId.size) return { patched: 0 }
 
@@ -988,20 +1373,28 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
     const term = byId.get(id)
     if (!term || !term.status) return false
     foundIds.add(id)
+    let changed = false
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
-    // 已是终态且同 id：无需改；终态不可被降级（本函数只收终态）
-    if (curId === nextId) return false
-    if (TERMINAL_STATUS_IDS[curId] && curId !== nextId) {
-      // 允许 Deployed(9) 覆盖 Success(3) 等终态升级；同级以详情为准
+    const canUpgradeStatus =
+      curId !== nextId &&
+      !(TERMINAL_STATUS_IDS[curId] && !TERMINAL_STATUS_IDS[nextId])
+    if (canUpgradeStatus) {
+      row.status = {
+        id: term.status.id,
+        name: term.status.name || '',
+        abbrev: term.status.abbrev || ''
+      }
+      if (term.net) row.net = term.net
+      changed = true
     }
-    row.status = {
-      id: term.status.id,
-      name: term.status.name || '',
-      abbrev: term.status.abbrev || ''
+    const stub = stubFromTerminalEntry(term)
+    if (stub) {
+      if (fillThinPreviousRow(row, stub)) changed = true
+    } else if (isThinPreviousLaunchRow(row)) {
+      if (fillThinPreviousRow(row, stubFromTerminalEntry(term))) changed = true
     }
-    if (term.net) row.net = term.net
-    return true
+    return changed
   }
 
   if (isBatched) {
@@ -1041,27 +1434,55 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
         })
       } catch (e) {}
     }
+    // 主文档声称分批但批次全丢：重建空 batch0
+    if (!firstBatchKey) {
+      firstBatchKey = `${cacheKey}_batch_0`
+      firstBatchPayload = { results: [], count: 0 }
+      firstBatchWrapper = { data: firstBatchPayload }
+    }
     const missing = []
     byId.forEach((term, id) => {
       if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length && firstBatchKey && firstBatchPayload) {
-      const stubs = missing.map(stubFromTerminalEntry).filter(Boolean)
-      firstBatchPayload.results = stubs.concat(firstBatchPayload.results || [])
-      inserted = stubs.length
-      try {
-        await col.doc(firstBatchKey).set({
-          data: {
-            ...firstBatchWrapper,
-            data: firstBatchPayload,
-            updatedAt: db.serverDate(),
-            updatedAtMs: Date.now()
-          }
+      const existingIds = new Set(
+        (firstBatchPayload.results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
         })
-      } catch (e) {}
+      if (stubs.length) {
+        firstBatchPayload.results = stubs.concat(firstBatchPayload.results || [])
+        if (typeof firstBatchPayload.count === 'number') {
+          firstBatchPayload.count = Number(firstBatchPayload.count) + stubs.length
+        }
+        inserted = stubs.length
+        try {
+          await col.doc(firstBatchKey).set({
+            data: {
+              ...firstBatchWrapper,
+              data: firstBatchPayload,
+              updatedAt: db.serverDate(),
+              updatedAtMs: Date.now()
+            }
+          })
+        } catch (e) {}
+      }
     }
     if (patched || inserted) {
       try {
+        // 主文档 count 供分页/诊断；插入 batch0 时同步抬，避免 hasMore 误判
+        if (inserted && payload && typeof payload.count === 'number') {
+          payload.count = Number(payload.count) + inserted
+          wrapper = { ...wrapper, data: payload }
+        }
         await col.doc(cacheKey).set({
           data: {
             ...wrapper,
@@ -1080,16 +1501,34 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
       if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length) {
-      const stubs = missing.map(stubFromTerminalEntry).filter(Boolean)
-      payload.results = stubs.concat(payload.results)
-      inserted = stubs.length
+      const existingIds = new Set(
+        (payload.results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
+        })
+      if (stubs.length) {
+        payload.results = stubs.concat(payload.results)
+        inserted = stubs.length
+      }
     }
     if (patched || inserted) {
       try {
+        const nextPayload = { ...payload, results: payload.results }
+        if (inserted && typeof nextPayload.count === 'number') {
+          nextPayload.count = Number(nextPayload.count) + inserted
+        }
         await col.doc(cacheKey).set({
           data: {
             ...wrapper,
-            data: { ...payload, results: payload.results },
+            data: nextPayload,
             updatedAt: db.serverDate(),
             updatedAtMs: Date.now()
           }
@@ -1247,6 +1686,42 @@ async function fetchLaunchStatusesAction() {
     try {
       await mergeTerminalRowsIntoRecentSettled(rows)
     } catch (e) {}
+    // 顺带把最新 NET/status 就地 patch 进 upcoming 列表缓存（0 额外 LL2）：
+    // 改期不用等小时探针，全体用户下次拉列表即可看到新时间
+    try {
+      await patchUpcomingSlimFromQuery(apiData.results)
+    } catch (e) {}
+    // 探针式 live 终态同步 previous，避免只改 upcoming、历史仍空窗
+    try {
+      const terminalEntries = []
+      const liveRows = Array.isArray(apiData.results) ? apiData.results : []
+      for (let i = 0; i < liveRows.length; i++) {
+        const r = liveRows[i]
+        const sid = r && r.status && r.status.id != null ? Number(r.status.id) : 0
+        if (!r || !r.id || !TERMINAL_STATUS_IDS[sid]) continue
+        terminalEntries.push({
+          id: String(r.id),
+          name: typeof r.name === 'string' ? r.name : '',
+          status: {
+            id: r.status.id,
+            name: r.status.name || '',
+            abbrev: r.status.abbrev || ''
+          },
+          net: r.net || '',
+          windowStart: r.window_start || '',
+          windowEnd: r.window_end || '',
+          settledAtMs: Date.now(),
+          source: 'fetchLaunchStatuses',
+          launchStub: buildPreviousStubFromLaunch(r)
+        })
+      }
+      if (terminalEntries.length) {
+        try {
+          await enrichTerminalEntriesFromUpcomingCache(terminalEntries)
+        } catch (e0) {}
+        await patchPreviousCacheStatusFromTerminal(terminalEntries)
+      }
+    } catch (e) {}
 
     // 返回合并后的 rows：当前任务查找 + 列表实况 patch 都能受益
     return { success: true, rows: mergedRows, fromCache: '', timestamp: Date.now(), elapsed: Date.now() - startTime }
@@ -1274,12 +1749,13 @@ async function fetchLaunchStatusesAction() {
 
 // ══════════════════════════════════════════════════════════════
 // Action: translateTexts — 客户端按需翻译（页面"翻译"按钮）
-// 词典 + translation_cache + TMT；失败项返回空串，客户端保留原文
+// 词典 + translation_cache + 混元 AI（主通道）+ TMT（仅兜底）；失败项返回空串，客户端保留原文
 // event.skipTmt=true 时只查词典+缓存（客户端混元优先链路的第一步）
 // ══════════════════════════════════════════════════════════════
 const TRANSLATE_MAX_ITEMS = 20
-const TRANSLATE_MAX_ITEM_CHARS = 4000
-const TRANSLATE_MAX_TOTAL_CHARS = 12000
+/** 单条硬上限（防滥用）；超长在 translateTextsBatch 内按句段切开，不再静默截断丢后半段 */
+const TRANSLATE_MAX_ITEM_CHARS = 20000
+const TRANSLATE_MAX_TOTAL_CHARS = 48000
 
 async function translateTextsAction(event) {
   const startTime = Date.now()
@@ -1292,14 +1768,46 @@ async function translateTextsAction(event) {
   if (total > TRANSLATE_MAX_TOTAL_CHARS) {
     return { success: false, error: '文本总量超限', timestamp: Date.now() }
   }
+  const skipTmt = !!(event && event.skipTmt)
   try {
-    const list = await translateTextsBatch(texts, { skipTmt: !!(event && event.skipTmt) })
+    const out = await translateTextsBatch(texts, { skipTmt, withMeta: true })
+    // 兼容：极端早退若仍返回裸数组，不把 out.list 当成 undefined 吃掉译文
+    const list = Array.isArray(out) ? out : ((out && out.list) || [])
+    const meta = Array.isArray(out) ? {} : (out || {})
     const translated = list.filter(Boolean).length
+    const tmtNeeded = meta.tmtNeeded != null ? meta.tmtNeeded : 0
+    const tmtConfigured = meta.tmtConfigured != null ? meta.tmtConfigured : isTmtConfigured()
+    // 需要机翻却全部为空：明确失败，避免客户端误显示「翻译暂不可用」却不知原因
+    if (!skipTmt && tmtNeeded > 0 && translated === 0) {
+      if (!tmtConfigured) {
+        return {
+          success: false,
+          error: '云端翻译服务未配置密钥',
+          list,
+          translated: 0,
+          tmtConfigured: false,
+          timestamp: Date.now(),
+          elapsed: Date.now() - startTime
+        }
+      }
+      const errMsg = meta.tmtLastError
+        ? ('翻译服务调用失败: ' + meta.tmtLastError)
+        : '翻译服务暂时不可用，请稍后再试'
+      return {
+        success: false,
+        error: errMsg,
+        list,
+        translated: 0,
+        tmtConfigured: true,
+        timestamp: Date.now(),
+        elapsed: Date.now() - startTime
+      }
+    }
     return {
       success: true,
       list,
       translated,
-      tmtConfigured: isTmtConfigured(),
+      tmtConfigured,
       timestamp: Date.now(),
       elapsed: Date.now() - startTime
     }
@@ -1332,13 +1840,21 @@ async function ensureCollections() {
     _legacySettledMigrated = true
     try {
       const legacy = await db.collection(TIMELINE_CACHE_COL).doc(RECENT_SETTLED_DOC).get()
-      const rows = legacy && legacy.data && Array.isArray(legacy.data.data) ? legacy.data.data : []
-      if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+      // migratedAtMs 标记：迁移只需成功一次，避免每次冷启动都对全部行重放 upsert 读写
+      if (legacy && legacy.data && !legacy.data.migratedAtMs) {
+        const rows = Array.isArray(legacy.data.data) ? legacy.data.data : []
+        if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+        await db.collection(TIMELINE_CACHE_COL).doc(RECENT_SETTLED_DOC).update({
+          data: { migratedAtMs: Date.now() }
+        }).catch(() => {})
+      }
     } catch (e) {}
   }
 }
 
 const RESOLVE_NON_TERMINAL_TTL_MS = 2 * 60 * 1000
+/** 飞行中再打 LL2 的间隔：避免 2 分钟后 resolve 读到滞后 Go 把历史角标打回就绪 */
+const RESOLVE_INFLIGHT_TTL_MS = 30 * 60 * 1000
 const RESOLVE_FAILURE_TTL_MS = 30 * 1000
 const RESOLVE_MAX_LL2_CALLS = 3
 const RESOLVE_GLOBAL_HOURLY_BUDGET = 6
@@ -1424,10 +1940,12 @@ async function resolveLaunchStatusesAction(event) {
     const id = ids[i]
     const hit = settledById.get(id)
     const sid = hit && hit.status && hit.status.id != null ? Number(hit.status.id) : 0
-    const fresh = hit && Date.now() - Number(hit.observedAtMs || hit.updatedAtMs || 0) < RESOLVE_NON_TERMINAL_TTL_MS
+    const observedAt = hit ? Number(hit.observedAtMs || hit.updatedAtMs || 0) : 0
+    const fresh = hit && Date.now() - observedAt < RESOLVE_NON_TERMINAL_TTL_MS
+    const inflightFresh = sid === INFLIGHT_STATUS_ID && hit && Date.now() - observedAt < RESOLVE_INFLIGHT_TTL_MS
     const hitNetMs = hit && hit.net ? new Date(hit.net).getTime() : 0
     const impossibleFutureTerminal = !!TERMINAL_STATUS_IDS[sid] && Number.isFinite(hitNetMs) && hitNetMs > Date.now()
-    if (hit && hit.status && !impossibleFutureTerminal && (TERMINAL_STATUS_IDS[sid] || fresh)) {
+    if (hit && hit.status && !impossibleFutureTerminal && (TERMINAL_STATUS_IDS[sid] || inflightFresh || fresh)) {
       rows.push({
         id,
         name: hit.name || '',
@@ -1452,6 +1970,7 @@ async function resolveLaunchStatusesAction(event) {
   const fetched = await Promise.all(fetchIds.map(fetchLaunchStatusSingleFlight))
 
   const now = Date.now()
+  const terminalForPrevious = []
   for (let i = 0; i < fetched.length; i++) {
     const data = fetched[i]
     if (!data) continue
@@ -1479,12 +1998,57 @@ async function resolveLaunchStatusesAction(event) {
       observedAtMs: now,
       fromCache: ''
     })
+    const sid = data.status && data.status.id != null ? Number(data.status.id) : 0
+    if (TERMINAL_STATUS_IDS[sid] || sid === INFLIGHT_STATUS_ID) {
+      terminalForPrevious.push({
+        id: String(data.id),
+        name: typeof data.name === 'string' ? data.name : '',
+        status: {
+          id: data.status.id,
+          name: data.status.name || '',
+          abbrev: data.status.abbrev || ''
+        },
+        net: data.net || '',
+        windowStart: data.window_start || '',
+        windowEnd: data.window_end || '',
+        settledAtMs: now,
+        source: 'resolveLaunchStatuses',
+        launchStub: buildPreviousStubFromLaunch(data)
+      })
+    }
+  }
+
+  // LL2 直接读数就地 patch 进 upcoming 列表缓存（0 额外 LL2）：
+  // hold/scrub 改期不再等小时探针，第一个触发 resolve 的用户即修正全局缓存
+  let cachePatch = null
+  const freshRows = fetched.filter(Boolean)
+  if (freshRows.length) {
+    try {
+      cachePatch = await patchUpcomingSlimFromQuery(freshRows)
+    } catch (e) {
+      cachePatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
+    }
+  }
+
+  // 终态同步进 previous，避免 resolve 升角标后历史列表仍等小时探针
+  let previousPatch = null
+  if (terminalForPrevious.length) {
+    try {
+      await enrichTerminalEntriesFromUpcomingCache(terminalForPrevious)
+    } catch (e0) {}
+    try {
+      previousPatch = await patchPreviousCacheStatusFromTerminal(terminalForPrevious)
+    } catch (e) {
+      previousPatch = { patched: 0, error: e.message || String(e) }
+    }
   }
 
   return {
     success: true,
     rows,
     ll2Calls,
+    cachePatch,
+    previousPatch,
     timestamp: Date.now(),
     elapsed: Date.now() - startTime
   }
@@ -1539,11 +2103,15 @@ exports.main = async (event = {}) => {
       return resolveLaunchStatusesAction(event)
     case 'getLaunchStatusSnapshot':
       return getLaunchStatusSnapshotAction(event)
+    case 'listRecentNetChanges':
+      return listRecentNetChangesAction(db)
     case 'backfillLaunchStatusPriorities':
+      // 运维补种，小程序不调用
       return backfillLaunchStatusPrioritiesAction()
     case 'translateTexts':
       return translateTextsAction(event)
     case 'translateDiag': {
+      // 运维诊断，小程序不调用
       const diag = await runTranslateDiag()
       return { success: true, ...diag, timestamp: Date.now() }
     }

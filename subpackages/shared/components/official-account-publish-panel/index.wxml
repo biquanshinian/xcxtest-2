@@ -12,11 +12,13 @@
     <!-- 原生贴图组件走官方默认样式（默认浅灰底深色字），不再自定义配色：
          自定义 background-color / color-unity 在深浅主题切换时表现不可控 -->
     <view class="official-account-publish-native-wrap">
+      <!-- 官方属性：topic/limit/placeholder/recommend-path/recommend-title；无 path -->
       <official-account-publish
         topic="{{safeTopic}}"
         limit="{{effectiveLimit}}"
-        path="/pages/index/index"
         placeholder="说点什么…"
+        recommend-path="/pages/index/index"
+        recommend-title="火星探索日志"
         binderror="onError"
         bindempty="onEmpty"
         bindpublishsuccess="onPublishSuccess"
@@ -27,8 +29,9 @@
       <official-account-publish
         topic="{{safeTopic}}"
         limit="{{probeLimit}}"
-        path="/pages/index/index"
         placeholder="说点什么…"
+        recommend-path="/pages/index/index"
+        recommend-title="火星探索日志"
         bindempty="onProbeEmpty"
       />
     </view>

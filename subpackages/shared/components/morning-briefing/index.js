@@ -6,7 +6,25 @@ const { ROUTES, navigateTo } = require('../../../../utils/routes.js')
 const { gateCheck } = require('../../../../utils/membership.js')
 const storageCache = require('../../../../utils/storage-sync-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
-const { resolveTweetAccountAvatarUrl } = require('../../../../utils/event-share-image.js')
+const { resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
+const { normalizeVerifyBadge, verifyBadgeSrc } = require('../../utils/x-verify-badge.js')
+const {
+  getEventIntelContext,
+  decorateEventItem,
+  pickTodayHighlights,
+  slimHighlightItem
+} = require('../../utils/event-feed-intel.js')
+const {
+  isChineseRocketContext,
+  softenChineseRocketFailureText
+} = require('../../../../utils/api-request.js')
+const {
+  applyContentLangToMission,
+  rocketNameForImage,
+  isGenericMissionTitle
+} = require('../../../../utils/launch-card-i18n.js')
+const { resolveLaunchMissionOverride } = require('../../../../utils/mission-title-i18n.js')
+const { getContentLang } = require('../../../../utils/locale.js')
 
 /** progress 为 tabBar 页，switchTab 不能带 query，用本地存储传筛选账号 */
 var BRIEFING_PROGRESS_FILTER_KEY = '_briefing_progress_filter_source'
@@ -31,13 +49,30 @@ function resolveRocketImg(rocketName) {
   return getRocketImage(n) || ''
 }
 
-/** 与详情头图同源：按火箭名 forceRecompute，不锁死列表里可能过期的 default 盖章 */
+/**
+ * 与列表卡 / 详情头图同源：空 stamp + 英文火箭名 forceRecompute，
+ * 避免中文展示名 miss 字典、以及缓存里机娘盖章粘住。
+ */
 function resolveBriefingRocketImage(m, rocketName) {
   if (!m) return resolveRocketImg(rocketName)
-  var name = rocketName || m.rocketName || m.rocket || ''
+  var nameEn = ''
+  try {
+    nameEn = rocketNameForImage(m) || ''
+  } catch (eImg) {
+    nameEn = ''
+  }
+  if (!nameEn) {
+    nameEn =
+      (m._langPack && m._langPack.rocketNameEn) ||
+      m.rocketNameEn ||
+      m.rocketName ||
+      rocketName ||
+      m.rocket ||
+      ''
+  }
+  nameEn = nameEn == null ? '' : String(nameEn).trim()
   var cfg = m.rocketConfiguration || null
-  var stamped = m.rocketImage || m.image || ''
-  return resolveMissionRocketImage(stamped, name, cfg, true)
+  return resolveMissionRocketImage('', nameEn, cfg, true) || getRocketImage(nameEn) || ''
 }
 
 /** 标题常为「火箭型号 | 任务/载荷名」，简报第一行只展示竖线后任务名（第二行已是火箭型号） */
@@ -86,8 +121,12 @@ function getCalendarMissionsForBriefing() {
     var pages = getCurrentPages()
     for (var i = pages.length - 1; i >= 0; i--) {
       var p = pages[i]
-      if (isIndexPage(p) && p.data && Array.isArray(p.data.calendarAllMissions) && p.data.calendarAllMissions.length > 0) {
-        return p.data.calendarAllMissions
+      if (isIndexPage(p)) {
+        var parkedCal = p._indexParked && p._indexParked.calendarAllMissions
+        if (Array.isArray(parkedCal) && parkedCal.length > 0) return parkedCal
+        if (p.data && Array.isArray(p.data.calendarAllMissions) && p.data.calendarAllMissions.length > 0) {
+          return p.data.calendarAllMissions
+        }
       }
     }
   } catch (e) {}
@@ -146,6 +185,7 @@ Component({
     tweetStats: [],
     tweetTotal: 0,
     tweetEventLoading: false,
+    tweetHighlights: [],
     popupScrollHeightPx: 420,
     /* root-portal 弹窗脱离页面 DOM，继承不到页面根的 theme-light 变量，组件自行挂主题类 */
     themeClass: ''
@@ -155,6 +195,7 @@ Component({
     attached() {
       this._userClosedThisSession = false
       this._tweetStatsLoaded = false
+      this._cloudBriefingStarted = false
       this._detached = false
       var self = this
       try { this.setData({ themeClass: themeUtil.getThemeClassSync() }) } catch (eTheme) {}
@@ -208,7 +249,7 @@ Component({
         var totalRatio = short ? 0.68 : 0.74
         var maxPopupTotal = Math.floor(wh * totalRatio - safeTop * 0.25 - safeBottom * 0.25)
         // 标题栏 + 分享按钮 + 内边距（经验 px，与 wxss 大致对齐）
-        var chromePx = 188
+        var chromePx = 162
         var h = maxPopupTotal - chromePx
         // 滚动区硬顶：约为屏高的 42%～46%，内容不多时少留大块空白
         var scrollCap = Math.floor(wh * (short ? 0.42 : 0.46))
@@ -231,8 +272,10 @@ Component({
       if (self.data._briefingDisabled) return false
       try {
         var prefs = loadPreferences()
-        if (prefs.briefingEnabled === false) return false
-      } catch (ePrefs) {}
+        if (prefs.briefingEnabled !== true) return false
+      } catch (ePrefs) {
+        return false
+      }
       if (isBriefingPopupShownToday()) return false
       if (self._userClosedThisSession) return false
       if (self.data.showPopup) return false
@@ -258,14 +301,19 @@ Component({
     _loadBriefing() {
       var self = this
       var prefs = loadPreferences()
-      if (prefs.briefingEnabled === false) {
+      var userEnabled = prefs.briefingEnabled === true
+      // 用户开关只拦首页自动弹窗；详情页/分享落地仍要能看
+      if (!userEnabled && self.data.mode !== 'page') {
         self.setData({ loading: false, hasData: false, _briefingDisabled: true })
         return
+      }
+      if (userEnabled && self.data._briefingDisabled) {
+        self.setData({ _briefingDisabled: false })
       }
 
       // 优先弹窗：必须放在 hasData 早退之前，
       // 否则数据加载完成后的重入调用（如隐私授权后接力）永远弹不出来
-      self._maybeAutoShowPopup(false)
+      if (userEnabled) self._maybeAutoShowPopup(false)
 
       // 如果已经加载过数据，直接重新构建渲染（不重设 loading）
       if (self._briefingWaitStarted && self.data.hasData) {
@@ -353,7 +401,8 @@ Component({
           var p = pages[i]
           if (isIndexPage(p) && p.data) {
             var up = (p.data.upcomingMissions || []).length
-            var cal = (p.data.calendarAllMissions || []).length
+            var parkedCal = p._indexParked && p._indexParked.calendarAllMissions
+            var cal = (Array.isArray(parkedCal) && parkedCal.length) || (p.data.calendarAllMissions || []).length
             return up > 0 || cal > 0
           }
         }
@@ -367,7 +416,41 @@ Component({
 
     _buildAndRender: function () {
       var briefing = this._buildBriefingFromCache()
-      this._renderBriefing(briefing)
+      var hasContent = briefing && (
+        (briefing.todayLaunches && briefing.todayLaunches.length > 0) ||
+        (briefing.yesterdayResults && briefing.yesterdayResults.length > 0)
+      )
+      if (hasContent) {
+        this._renderBriefing(briefing)
+        return
+      }
+      this._fetchCloudBriefing(briefing)
+    },
+
+    _fetchCloudBriefing: function (fallback) {
+      var self = this
+      if (self._cloudBriefingStarted) {
+        if (fallback) self._renderBriefing(fallback)
+        return
+      }
+      self._cloudBriefingStarted = true
+      if (!wx.cloud || !wx.cloud.callFunction) {
+        self._renderBriefing(fallback || { todayLaunches: [], yesterdayResults: [] })
+        return
+      }
+      wx.cloud.callFunction({
+        name: 'userDataGateway',
+        data: { action: 'getTodayBriefing' }
+      }).then(function (res) {
+        var remote = res && res.result && res.result.briefing
+        var hasRemote = remote && (
+          (remote.todayLaunches && remote.todayLaunches.length > 0) ||
+          (remote.yesterdayResults && remote.yesterdayResults.length > 0)
+        )
+        self._renderBriefing(hasRemote ? remote : (fallback || { todayLaunches: [], yesterdayResults: [] }))
+      }).catch(function () {
+        self._renderBriefing(fallback || { todayLaunches: [], yesterdayResults: [] })
+      })
     },
 
     _renderBriefing: function (briefing) {
@@ -375,13 +458,13 @@ Component({
 
       if (briefing.todayLaunches && briefing.todayLaunches.length > 0) {
         briefing.todayLaunches = briefing.todayLaunches.map(function (item) {
-          item.rocketImage = resolveBriefingRocketImage(item, item.rocket)
+          item.rocketImage = resolveBriefingRocketImage(item, item.rocketNameEn || item.rocket)
           return item
         })
       }
       if (briefing.yesterdayResults && briefing.yesterdayResults.length > 0) {
         briefing.yesterdayResults = briefing.yesterdayResults.map(function (item) {
-          item.rocketImage = resolveBriefingRocketImage(item, item.rocket)
+          item.rocketImage = resolveBriefingRocketImage(item, item.rocketNameEn || item.rocket)
           return item
         })
       }
@@ -489,8 +572,54 @@ Component({
 
       var pool = mergeMissionListsForBriefing([calendar, upcoming, completed])
       function mapMission(m) {
-        var rawTitle = (m.name || m.missionName || m.title || '').trim()
-        var rocketName = briefingRocketNameFromMission(m, rawTitle)
+        // 与任务卡同源：先套内容语言包 / 本地任务名词典，避免简报仍显示 Michibiki 等英文
+        var src = m && typeof m === 'object' ? Object.assign({}, m) : {}
+        if (m && m._langPack) src._langPack = Object.assign({}, m._langPack)
+        if (m && m.rocketConfiguration) src.rocketConfiguration = m.rocketConfiguration
+        if (m && m.boosterInfo) src.boosterInfo = m.boosterInfo
+        try {
+          applyContentLangToMission(src)
+        } catch (eLang) {}
+        // 任务段优先（列表卡同源）；避免整段「火箭|未知有效载荷」占位盖住已译任务名
+        var rawTitle = (
+          src.missionName || src.name || src.title ||
+          m.missionName || m.name || m.title || ''
+        ).trim()
+        var ovTitle = resolveLaunchMissionOverride(m.id || m._id || src.id)
+        if (ovTitle && isGenericMissionTitle(briefingMissionDisplayName(rawTitle) || rawTitle)) {
+          rawTitle = ovTitle.missionNameZh || ovTitle.missionNameEn
+        }
+        var rocketName = briefingRocketNameFromMission(src, rawTitle) || briefingRocketNameFromMission(m, rawTitle)
+        // 配图专用英文名（与列表卡 rocketNameForImage 同源）；展示名可再译中文
+        var rocketNameEn =
+          rocketNameForImage(src) ||
+          rocketNameForImage(m) ||
+          (src._langPack && src._langPack.rocketNameEn) ||
+          (m._langPack && m._langPack.rocketNameEn) ||
+          ''
+        if (!rocketNameEn && rocketName && !/[\u4e00-\u9fff]/.test(rocketName)) {
+          rocketNameEn = rocketName
+        }
+        if (getContentLang() !== 'en') {
+          var rocketEn =
+            rocketNameEn ||
+            (src._langPack && src._langPack.rocketNameEn) ||
+            rocketName ||
+            ''
+          var rocketZh =
+            (src._langPack && src._langPack.rocketNameZh) ||
+            (m._langPack && m._langPack.rocketNameZh) ||
+            rocketName
+          var titleZh =
+            (src._langPack && (src._langPack.missionNameZh || src._langPack.nameZh)) ||
+            (m._langPack && (m._langPack.missionNameZh || m._langPack.nameZh)) ||
+            ''
+          if (titleZh) rawTitle = titleZh
+          if (rocketZh) rocketName = rocketZh
+          if (!rocketNameEn && rocketEn) rocketNameEn = rocketEn
+        } else if (!rocketNameEn) {
+          rocketNameEn = rocketName
+        }
         var cat = m.statusCategory || ''
         var statusLabel = ''
         if (m.statusBadgeText) {
@@ -512,13 +641,16 @@ Component({
           var nameStr = String(typeof m.status === 'string' ? m.status : '')
           if (abbrev.indexOf('success') !== -1 || /成功|succeed/i.test(nameStr)) {
             statusLabel = '成功'
-          } else if (abbrev.indexOf('fail') !== -1 || /^failure|fail/i.test(abbrev) || /失败/.test(nameStr)) {
+          } else if (abbrev.indexOf('fail') !== -1 || /^failure|fail/i.test(abbrev) || /失败|失利/.test(nameStr)) {
             statusLabel = '失败'
           } else if (/partial/i.test(abbrev) || /部分/.test(nameStr)) {
             statusLabel = '部分失败'
           } else {
             statusLabel = nameStr ? nameStr.slice(0, 24) : '已完成'
           }
+        }
+        if (isChineseRocketContext(m)) {
+          statusLabel = softenChineseRocketFailureText(statusLabel)
         }
 
         var briefingStatus = 'unknown'
@@ -537,8 +669,8 @@ Component({
           statusCategory = m.statusCategory
         } else {
           if (/已成功|^成功|succeed/i.test(statusLabel)) statusCategory = 'success'
-          else if (/部分失败/.test(statusLabel)) statusCategory = 'partial'
-          else if (/失败/.test(statusLabel)) statusCategory = 'failure'
+          else if (/部分失败|部分失利/.test(statusLabel)) statusCategory = 'partial'
+          else if (/失败|失利/.test(statusLabel)) statusCategory = 'failure'
           else if (/推迟/.test(statusLabel)) statusCategory = 'delayed'
           else if (/取消/.test(statusLabel)) statusCategory = 'cancelled'
         }
@@ -548,11 +680,22 @@ Component({
         else if (m._isUpcoming === false) detailType = 'completed'
         else if (isMissionCompletedCalendar(m)) detailType = 'completed'
 
+        var imageSrc = Object.assign({}, m, {
+          rocketName: rocketNameEn || m.rocketName || rocketName,
+          rocketNameEn: rocketNameEn || '',
+          rocketConfiguration: m.rocketConfiguration || src.rocketConfiguration || null,
+          _langPack: Object.assign({}, m._langPack || {}, src._langPack || {}, {
+            rocketNameEn: rocketNameEn || (m._langPack && m._langPack.rocketNameEn) || ''
+          })
+        })
         return {
           id: m.id || m._id || '',
           name: briefingMissionDisplayName(rawTitle) || rawTitle,
           rocket: rocketName,
-          rocketImage: resolveBriefingRocketImage(m, rocketName),
+          rocketNameEn: rocketNameEn || '',
+          rocketConfiguration: imageSrc.rocketConfiguration,
+          _langPack: imageSrc._langPack,
+          rocketImage: resolveBriefingRocketImage(imageSrc, rocketNameEn || rocketName),
           status: briefingStatus,
           statusLabel: statusLabel,
           statusCategory: statusCategory,
@@ -619,11 +762,11 @@ Component({
     _loadTweetStats() {
       var self = this
       if (!wx.cloud) {
-        self.setData({ tweetEventLoading: false, tweetStats: [], tweetTotal: 0 })
+          self.setData({ tweetEventLoading: false, tweetStats: [], tweetTotal: 0, tweetHighlights: [] })
         return
       }
       // 当日缓存先上屏（秒开），云端结果回来后静默刷新
-      var cacheKey = '_briefing_tweet_stats_cache'
+      var cacheKey = '_briefing_tweet_stats_cache_v2'
       var todayYmd = utcToBeijingYmd(new Date().toISOString())
       try {
         var cached = storageCache.readMemOrSync(cacheKey, null)
@@ -635,6 +778,7 @@ Component({
           })
         }
       } catch (e0) {}
+      self._loadTweetHighlights()
       try {
         wx.cloud.callFunction({
           name: 'userDataGateway',
@@ -647,11 +791,14 @@ Component({
             total = typeof result.total === 'number' ? result.total : 0
             if (result.tweetStats && result.tweetStats.length > 0) {
             stats = result.tweetStats.map(function (item) {
+              var badge = normalizeVerifyBadge(item.verifyBadge)
               return {
                 screenName: item.screenName,
                 label: item.label,
                 avatarUrl: item.avatarUrl || resolveTweetAccountAvatarUrl(item.screenName) || '',
-                todayCount: item.todayCount
+                todayCount: item.todayCount,
+                verifyBadge: badge,
+                verifyBadgeSrc: item.verifyBadgeSrc || verifyBadgeSrc(badge)
               }
             })
             }
@@ -666,6 +813,49 @@ Component({
       } catch (e) {
         self.setData({ tweetEventLoading: false })
       }
+    },
+
+    _loadTweetHighlights() {
+      var self = this
+      if (!wx.cloud || !wx.cloud.database) return
+      var cacheKey = '_briefing_tweet_highlights_cache'
+      var todayYmd = utcToBeijingYmd(new Date().toISOString())
+      try {
+        var cached = storageCache.readMemOrSync(cacheKey, null)
+        if (cached && cached.date === todayYmd && Array.isArray(cached.list) && cached.list.length) {
+          self.setData({ tweetHighlights: cached.list })
+        }
+      } catch (e0) {}
+      try {
+        var ctx = getEventIntelContext()
+        wx.cloud.database().collection('starship_event_updates')
+          .where({ status: 'published' })
+          .orderBy('publishedAt', 'desc')
+          .limit(12)
+          .get()
+          .then(function (res) {
+            var rows = (res && res.data) || []
+            var allow = ctx.watchSources || []
+            if (allow.length) {
+              var map = {}
+              allow.forEach(function (s) { map[s] = 1 })
+              rows = rows.filter(function (r) { return r && map[r.source] })
+            }
+            var decorated = rows.map(function (r) { return decorateEventItem(r, ctx) })
+            var picked = pickTodayHighlights(decorated, Date.now(), 3)
+              .map(function (it) { return slimHighlightItem(it) })
+              .filter(Boolean)
+            self.setData({ tweetHighlights: picked })
+            try { storageCache.persistAsync(cacheKey, { date: todayYmd, list: picked }) } catch (e1) {}
+          })
+          .catch(function () {})
+      } catch (e2) {}
+    },
+
+    onTweetHighlightTap(e) {
+      var id = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.id
+      if (!id) return
+      navigateTo(ROUTES.EVENT_DETAIL, { id: String(id) })
     },
 
     async onTweetAccountTap(e) {

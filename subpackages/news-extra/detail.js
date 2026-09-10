@@ -1,48 +1,21 @@
 const { getArticleDetail, getEventDetail } = require('./utils/api-news.js')
 const { formatDate } = require('../../utils/util.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
-const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
+const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
 const { resolveNewsDetailRoute } = require('./utils/page-route-options.js')
 const { applyPageSearchInfo, buildNewsDetailSearchMeta } = require('./utils/page-search-info.js')
-const { optimizeNewsHeroUrl } = require('../../utils/news-thumb-url.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { buildNewsHeroCandidates } = require('./utils/news-thumb-url.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
-const { workerProxyUrl } = require('../../utils/config.js')
+const {
+  SHARE_THUMB_FALLBACK,
+  pickShareImageUrl,
+  pickShareDownloadSrc,
+  ensureShareImageOnPage
+} = require('../../utils/share-thumb.js')
 
 const NEWS_SHARE_DEFAULT_KEY = 'images/share/default.jpg'
-
-/** 国内可直连的自有域名（COS/云存储/自有 Worker），无需走图片代理 */
-const DOMESTIC_IMAGE_HOST = /myqcloud\.com|tcb\.qcloud\.la|tcloudbaseapp\.com|marsx\.com\.cn/i
-
-/**
- * 外链图片 → Cloudflare Worker 图片代理（GET /image?url=...，24h 边缘缓存）。
- * SNAPI 文章图（WP 系站点/Photon）与 LL2 事件图（DigitalOcean Spaces）国内直连大概率失败，
- * 与飞船图鉴 proxiedImageUrl 同一条代理链路。
- */
-function proxiedNewsImageUrl(url) {
-  const s = String(url || '').trim()
-  if (!s || !/^https?:\/\//i.test(s)) return ''
-  if (DOMESTIC_IMAGE_HOST.test(s)) return ''
-  const base = String(workerProxyUrl || '').trim().replace(/\/$/, '')
-  if (!base) return ''
-  return base + '/image?url=' + encodeURIComponent(s)
-}
-
-/** 头图加载候选链：Worker 代理 → Photon 优化图 → 原图（binderror 逐级回退） */
-function buildHeroCandidates(rawUrl) {
-  const raw = String(rawUrl || '').trim()
-  if (!raw) return []
-  // 非 http(s)（cloud:// fileID 等）直接原样展示
-  if (!/^https?:\/\//i.test(raw)) return [raw]
-  const list = []
-  const proxied = proxiedNewsImageUrl(raw)
-  if (proxied) list.push(proxied)
-  const photon = optimizeNewsHeroUrl(raw)
-  if (photon && photon !== raw && list.indexOf(photon) < 0) list.push(photon)
-  if (list.indexOf(raw) < 0) list.push(raw)
-  return list
-}
 
 function resolveDetailMediaSrc(val) {
   if (!val || !String(val).trim()) return ''
@@ -87,9 +60,9 @@ function normalizeArticle(article) {
     const first = extractFirstImgSrcFromHtml(article.content)
     if (first) heroImageUrl = resolveDetailMediaSrc(first)
   }
-  // 外链图国内直连大概率失败：候选链 Worker 代理 → Photon 优化图 → 原图，binderror 逐级回退
+  // 外链图国内直连大概率失败：与列表卡同一条 Worker 代理链，binderror 逐级回退
   const heroImageRawUrl = heroImageUrl
-  const heroCandidates = buildHeroCandidates(heroImageUrl)
+  const heroCandidates = buildNewsHeroCandidates(heroImageUrl)
   heroImageUrl = heroCandidates[0] || ''
 
   const contentRich = !!(isManualArticle && manualArticleUsesRichContent(article.content || ''))
@@ -115,7 +88,7 @@ function normalizeArticle(article) {
 
 function normalizeEvent(event) {
   if (!event) return null
-  const heroCandidates = buildHeroCandidates(event.image)
+  const heroCandidates = buildNewsHeroCandidates(event.image)
   return {
     ...event,
     heroImageRawUrl: event.image || '',
@@ -185,6 +158,7 @@ Page({
       shareImage,
       navTitle: detailType === 'article' ? '文章详情' : '事件详情'
     })
+    this._syncShareImage('')
 
     if (!id) {
       this.setData({
@@ -198,7 +172,16 @@ Page({
   },
 
   resolveShareImage(image) {
-    return image || resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
+    const fallback = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '') || SHARE_THUMB_FALLBACK
+    return pickShareImageUrl({ displayImage: image, rawImage: image, safeFallback: fallback })
+  },
+
+  _syncShareImage(image) {
+    const fallback = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '') || SHARE_THUMB_FALLBACK
+    const opts = { displayImage: image, rawImage: image, safeFallback: fallback }
+    const url = pickShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
   },
 
   /** 领取新闻列表页点卡片时暂存的列表项快照（一次性，30 秒内有效） */
@@ -215,20 +198,36 @@ Page({
     return null
   },
 
+  /** 与任务详情页一致：重新载入内容时清掉上一条的译文与页面级翻译缓存 */
+  _resetDescTranslation() {
+    const i18n = this.data.descI18n || {}
+    if (this.data.descTranslated || i18n.title || i18n.summary || i18n.content || i18n.eventDesc) {
+      this.setData({
+        descTranslated: false,
+        descTranslating: false,
+        descI18n: { title: '', summary: '', content: '', eventDesc: '' }
+      })
+    }
+    this._textTranslateCache = null
+  },
+
   async loadDetail(detailType, id, opts = {}) {
+    this._resetDescTranslation()
     // 列表项快照先上屏（首屏加速）：列表与详情走同一格式化函数，展示一致；网络详情照常拉取兜底
     if (!this.data.item && !opts.silent) {
       const snap = this._takeNewsSnapshot(detailType, id)
       if (snap) {
         const snapItem = detailType === 'article' ? normalizeArticle(snap) : normalizeEvent(snap)
         if (snapItem) {
+          const snapShare = detailType === 'article' ? (snapItem.heroImageUrl || snapItem.image) : snapItem.image
           this.setData({
             loading: false,
             item: snapItem,
             shareTitle: `${snapItem.title || (detailType === 'article' ? '航天事件' : '即将发生')} | 火星探索日志`,
-            shareImage: this.resolveShareImage(detailType === 'article' ? (snapItem.heroImageUrl || snapItem.image) : snapItem.image),
-            navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+            shareImage: this.resolveShareImage(snapShare),
+            navTitle: snapItem.title || (detailType === 'article' ? '文章详情' : '事件详情')
           })
+          this._syncShareImage(snapShare)
           opts = { ...opts, silent: true }
         }
       }
@@ -245,15 +244,17 @@ Page({
         : normalizeEvent(await getEventDetail(id))
 
       const shareTitle = `${item.title || (detailType === 'article' ? '航天事件' : '即将发生')} | 火星探索日志`
-      const shareImage = this.resolveShareImage(detailType === 'article' ? (item.heroImageUrl || item.image) : item.image)
+      const shareSrc = detailType === 'article' ? (item.heroImageUrl || item.image) : item.image
+      const shareImage = this.resolveShareImage(shareSrc)
 
       this.setData({
         loading: false,
         item,
         shareTitle,
         shareImage,
-        navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+        navTitle: item.title || (detailType === 'article' ? '文章详情' : '事件详情')
       })
+      this._syncShareImage(shareSrc)
 
       const searchMeta = buildNewsDetailSearchMeta(item, detailType, shareImage)
       if (searchMeta) applyPageSearchInfo(searchMeta)
@@ -397,27 +398,38 @@ Page({
 
     const item = this.data.item
     const detailType = this.data.detailType
-    if (!item) {
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = detailType || route.detailType || 'event'
+
+    if (!entryId) {
       return {
         title: '航天事件详情 | 火星探索日志',
         path: '/pages/news/news',
-        imageUrl: this.data.shareImage
+        imageUrl: this.data.shareImage || this.resolveShareImage('')
       }
     }
 
     return {
-      title: this.data.shareTitle,
-      path: `/subpackages/news-extra/detail?id=${item.id}&type=${detailType}`,
-      imageUrl: this.data.shareImage
+      title: this.data.shareTitle || '航天事件详情 | 火星探索日志',
+      path: `/subpackages/news-extra/detail?id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}`,
+      imageUrl: this.data.shareImage || this.resolveShareImage('')
     }
   },
 
   onShareTimeline() {
     const item = this.data.item
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = this.data.detailType || route.detailType || 'event'
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${item.id}&type=${this.data.detailType}` : '',
-      imageUrl: this.data.shareImage
+      query: entryId ? `id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}` : '',
+      imageUrl: this.data.shareImage || this.resolveShareImage('')
     }
   }
 })

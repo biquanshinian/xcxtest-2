@@ -1,0 +1,9 @@
+{
+  "name": "oaContentDaily",
+  "version": "1.0.0",
+  "description": "公众号内容日更：生成后台草稿",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

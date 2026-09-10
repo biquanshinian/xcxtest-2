@@ -1,4 +1,7 @@
-<view wx:if="{{visible}}" class="renewal-mask" catchtouchmove="noop">
+<!-- 会员弹窗：root-portal 真机脱离页面 DOM，须在遮罩自挂 themeClass
+     事件结构对齐 morning-briefing：mask 只 catchtouchmove，不挂 catchtouchstart -->
+<root-portal wx:if="{{visible}}">
+<view class="renewal-mask {{themeClass}} {{tabletClass}}" catchtouchmove="noop">
   <view class="renewal-popup">
     <!-- 顶部星空光晕装饰 -->
     <view class="renewal-glow"></view>
@@ -17,6 +20,7 @@
 
     <!-- ══ 变体一：PRO 临期续费提醒 ══ -->
     <view class="renewal-body" wx:if="{{mode === 'renewal'}}">
+      <text class="renewal-kicker" wx:if="{{devMode}}">开发预览</text>
       <view class="renewal-badge-wrap">
         <image class="renewal-badge" src="{{memberIcon}}" mode="aspectFit" />
         <view class="renewal-badge-ring"></view>
@@ -51,14 +55,15 @@
         </view>
       </view>
 
-      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
-        {{expired ? '立即恢复 PRO' : '立即续费'}}
-      </button>
+      <view class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        <text class="renewal-btn-text">{{expired ? '立即恢复 PRO' : '立即续费'}}</text>
+      </view>
       <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">暂不需要</view>
     </view>
 
     <!-- ══ 变体二：免费用户升级推荐 ══ -->
     <view class="renewal-body" wx:else>
+      <text class="renewal-kicker" wx:if="{{devMode}}">开发预览</text>
       <view class="renewal-badge-wrap">
         <image class="renewal-badge" src="{{memberIcon}}" mode="aspectFit" />
         <view class="renewal-badge-ring"></view>
@@ -68,40 +73,18 @@
       <view class="promo-subtitle">解锁完整的太空探索体验</view>
 
       <view class="promo-benefits">
-        <view class="promo-benefit">
+        <view class="promo-benefit" wx:for="{{benefits}}" wx:key="name">
           <view class="promo-benefit-icon">
-            <text>∞</text>
+            <image
+              wx:if="{{item.iconUrl}}"
+              class="promo-benefit-icon-img"
+              src="{{item.iconUrl}}"
+              mode="aspectFit"
+            />
           </view>
           <view class="promo-benefit-info">
-            <text class="promo-benefit-name">AI 无限对话与识图</text>
-            <text class="promo-benefit-desc">太空助手不限次提问 · 图像识别不限量</text>
-          </view>
-        </view>
-        <view class="promo-benefit">
-          <view class="promo-benefit-icon">
-            <text>◎</text>
-          </view>
-          <view class="promo-benefit-info">
-            <text class="promo-benefit-name">24 小时过境预报</text>
-            <text class="promo-benefit-desc">星链卫星未来 24 小时精确过境预报</text>
-          </view>
-        </view>
-        <view class="promo-benefit">
-          <view class="promo-benefit-icon">
-            <text>▶</text>
-          </view>
-          <view class="promo-benefit-info">
-            <text class="promo-benefit-name">纯净体验 + 高清下载</text>
-            <text class="promo-benefit-desc">去除弹窗广告 · 图片视频原图下载</text>
-          </view>
-        </view>
-        <view class="promo-benefit">
-          <view class="promo-benefit-icon">
-            <text>★</text>
-          </view>
-          <view class="promo-benefit-info">
-            <text class="promo-benefit-name">会员专属徽章</text>
-            <text class="promo-benefit-desc">专属成就与金色边框，身份一目了然</text>
+            <text class="promo-benefit-name">{{item.name}}</text>
+            <text class="promo-benefit-desc">{{item.desc}}</text>
           </view>
         </view>
       </view>
@@ -112,10 +95,11 @@
         <text class="promo-price-hint promo-price-hint--em">年卡 ¥{{priceYearly}} 更划算</text>
       </view>
 
-      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
-        查看会员权益
-      </button>
+      <view class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        <text class="renewal-btn-text">查看会员权益</text>
+      </view>
       <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">以后再说</view>
     </view>
   </view>
 </view>
+</root-portal>

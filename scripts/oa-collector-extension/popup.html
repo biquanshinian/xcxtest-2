@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>公众号采集</title>
+  <style>
+    body { font-family: system-ui, sans-serif; width: 340px; margin: 0; padding: 14px; background: #0f1220; color: #e8eaf2; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    label { display: block; font-size: 11px; color: #9aa3bd; margin: 8px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #2a3148; background: #171b2c; color: #fff; }
+    button { width: 100%; margin-top: 10px; padding: 10px; border: 0; border-radius: 8px; background: #2f6bff; color: #fff; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #2a3148; }
+    button.accent { background: #1f9d55; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .hint { font-size: 11px; color: #6b7392; margin-top: 10px; line-height: 1.55; }
+    .status { font-size: 12px; margin-top: 10px; min-height: 18px; white-space: pre-wrap; }
+    .ok { color: #58e08a; }
+    .err { color: #ff7a7a; }
+  </style>
+</head>
+<body>
+  <h1>火星探索日志 · 采集插件</h1>
+  <label>Admin API Base（…/admin）</label>
+  <input id="apiBase" placeholder="https://xxx.tcloudbase.com/admin" />
+  <label>OA_COLLECTOR_TOKEN</label>
+  <input id="token" type="password" placeholder="与云函数环境变量一致" />
+  <button id="save">保存配置</button>
+  <button id="collect" class="secondary">采集当前文章</button>
+  <button id="collect5" class="accent">采集最新 5 篇</button>
+  <div id="status" class="status"></div>
+  <div class="hint">
+    <b>最新 5 篇用法：</b>微信打开对标号 →「查看历史消息」→ 用 Chrome 打开该页 → 点本按钮。<br />
+    单篇：在文章页点「采集当前文章」。<br />
+    入库后到后台「对标资产库 → 对标账号 → 文章」洗稿进草稿箱。
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 const pageBase = require('../../utils/page-base.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 const EXOPLANETS = [
   {
@@ -277,10 +278,12 @@ Page({
       habitable: EXOPLANETS.filter(p => p.habitable).length,
       nearest: EXOPLANETS.reduce((min, p) => p.distance < min.distance ? p : min, EXOPLANETS[0]),
       methods: 0
-    }
+    },
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   onLoad() {
+    bootPageShareThumb(this)
     this.initUiShell()
     this._updateStats()
   },
@@ -325,11 +328,15 @@ Page({
   onShareAppMessage() {
     return {
       title: '系外行星图鉴 · 探索已知的奇异世界',
-      path: '/pages/space-explore/exoplanet'
+      path: '/pages/space-explore/exoplanet',
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
-    return { title: '系外行星图鉴 · 探索已知的奇异世界' }
+    return {
+      title: '系外行星图鉴 · 探索已知的奇异世界',
+      imageUrl: pageShareImage(this)
+    }
   }
 })

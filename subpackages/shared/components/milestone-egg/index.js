@@ -38,6 +38,15 @@ Component({
       this.setData({ stage: 'form' })
     },
 
+    onClaimOrForm: function () {
+      var milestone = this.data.milestone || {}
+      if (milestone.prizeType === 'pro_1month') {
+        this.submitClaim(true)
+        return
+      }
+      this.setData({ stage: 'form' })
+    },
+
     onInputName: function (e) {
       this.setData({ formName: e.detail.value })
     },
@@ -55,27 +64,37 @@ Component({
     },
 
     onSubmit: function () {
-      var name = this.data.formName.trim()
-      var phone = this.data.formPhone.trim()
-      var address = this.data.formAddress.trim()
-      var selections = this.data.formSelections || {}
+      this.submitClaim(false)
+    },
 
-      if (!name) return wx.showToast({ title: '请输入姓名', icon: 'none' })
-      if (!phone || phone.length < 11) return wx.showToast({ title: '请输入正确手机号', icon: 'none' })
-      if (!address) return wx.showToast({ title: '请输入收货地址', icon: 'none' })
-
-      // 校验必选选项
-      var customOptions = (this.data.milestone && this.data.milestone.customOptions) || []
-      for (var i = 0; i < customOptions.length; i++) {
-        var opt = customOptions[i]
-        if (opt.required && !selections[opt.label]) {
-          return wx.showToast({ title: '请选择' + opt.label, icon: 'none' })
-        }
-      }
-
+    submitClaim: function (isPro) {
       var milestone = this.data.milestone
       if (!milestone || !milestone.milestoneId) {
         return wx.showToast({ title: '奖品信息异常', icon: 'none' })
+      }
+
+      var body = { milestoneId: milestone.milestoneId }
+      if (!isPro) {
+        var name = (this.data.formName || '').trim()
+        var phone = (this.data.formPhone || '').trim()
+        var address = (this.data.formAddress || '').trim()
+        var selections = this.data.formSelections || {}
+
+        if (!name) return wx.showToast({ title: '请输入姓名', icon: 'none' })
+        if (!phone || phone.length < 11) return wx.showToast({ title: '请输入正确手机号', icon: 'none' })
+        if (!address) return wx.showToast({ title: '请输入收货地址', icon: 'none' })
+
+        var customOptions = milestone.customOptions || []
+        for (var i = 0; i < customOptions.length; i++) {
+          var opt = customOptions[i]
+          if (opt.required && !selections[opt.label]) {
+            return wx.showToast({ title: '请选择' + opt.label, icon: 'none' })
+          }
+        }
+        body.name = name
+        body.phone = phone
+        body.address = address
+        body.selections = selections
       }
 
       this.setData({ submitting: true })
@@ -86,20 +105,14 @@ Component({
         data: {
           path: '/milestone-claim',
           method: 'POST',
-          body: {
-            milestoneId: milestone.milestoneId,
-            name: name,
-            phone: phone,
-            address: address,
-            selections: selections
-          }
+          body: body
         }
       }).then(function (res) {
         var result = res.result || {}
         if (result.code === 0) {
           wx.vibrateShort({ type: 'medium' })
           self.setData({ stage: 'done', submitting: false })
-          self.triggerEvent('claimed', { milestoneId: milestone.milestoneId })
+          self.triggerEvent('claimed', { milestoneId: milestone.milestoneId, prizeType: milestone.prizeType || '' })
         } else {
           wx.showToast({ title: result.message || '提交失败', icon: 'none' })
           self.setData({ submitting: false })

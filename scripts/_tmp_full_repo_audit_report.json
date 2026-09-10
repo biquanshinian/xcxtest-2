@@ -1,0 +1,68 @@
+{
+  "js": {
+    "total": 510,
+    "ok": 510,
+    "fail": 0,
+    "appFail": 0,
+    "tempFail": 0,
+    "fails": []
+  },
+  "comments": {
+    "scannedAppFiles": 366,
+    "suspiciousFiles": 1,
+    "hits": [
+      {
+        "file": "cloudfunctions/syncTLE/index.js",
+        "unclosed": {
+          "line": 21
+        },
+        "swallowedCount": 24,
+        "samples": [
+          {
+            "line": 25,
+            "text": "if (res.statusCode !== 200) {",
+            "blockStart": 21
+          },
+          {
+            "line": 26,
+            "text": "reject(new Error('HTTP ' + res.statusCode))",
+            "blockStart": 21
+          },
+          {
+            "line": 52,
+            "text": "if (lines.length >= 3 && lines[1].startsWith('1 ') && lines[2].startsWith('2 ')) {",
+            "blockStart": 21
+          },
+          {
+            "line": 67,
+            "text": "for (const src of CELESTRAK_STATIONS) {",
+            "blockStart": 21
+          },
+          {
+            "line": 72,
+            "text": "if (parsed) tle[src.noradId] = parsed",
+            "blockStart": 21
+          },
+          {
+            "line": 77,
+            "text": "if (!Object.keys(tle).length) throw new Error('CelesTrak 所有站点均失败')",
+            "blockStart": 21
+          }
+        ]
+      }
+    ]
+  },
+  "json": {
+    "total": 175,
+    "fail": 0,
+    "fails": []
+  },
+  "tests": {
+    "files": 17,
+    "exitCode": 0,
+    "tests": 135,
+    "pass": 135,
+    "fail": 0,
+    "failingTitles": []
+  }
+}

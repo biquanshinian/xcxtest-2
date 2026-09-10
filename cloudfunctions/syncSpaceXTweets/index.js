@@ -14,8 +14,13 @@ const COS_REGION = 'ap-guangzhou'
 const COS_BASE_URL = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/'
 const COLLECTION = 'starship_event_updates'
 const MAX_NEW_TWEETS = 2
-const MAX_TWEET_AGE_DAYS = 7
+/** 入库与展示窗口：超过此时长的推文不再抓取 */
+const MAX_TWEET_AGE_DAYS = 3
+/** 推文事件生命周期：超过此时长自动删除（手动录入无 tweetId 的保留） */
+const EVENT_TTL_DAYS = 3
 const MAX_EVENTS = 100
+/** SpaceX 发射集锦留给 mission-replay 匹配，可多留几天 */
+const REPLAY_KEEP_DAYS = 7
 // 回填模式只补 48 小时内的漏抓推文
 const BACKFILL_MAX_AGE_HOURS = 48
 // Twitter snowflake 纪元（毫秒），用于从推文 ID 反推发布时间，免拉详情预过滤旧推文
@@ -207,7 +212,7 @@ async function fetchTimelineTweetIds(screenName) {
 /**
  * 付费批量兜底（twitterapi.io 高级搜索，经 Worker 代理）：
  * 一次请求覆盖全部启用账号，返回 { 账号名小写: [推文ID] }。
- * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 15 分钟调用也只在整点刷新时真正付费。
+ * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 30 分钟调用也只在整点刷新时真正付费。
  * 失败或未配置 Key 时返回空映射，管线退化为纯 syndication。
  */
 async function fetchBatchNewTweetIds(accounts) {
@@ -306,9 +311,24 @@ function splitForTranslation(text, maxLen = 1200) {
 /**
  * 大模型翻译（混元/cloudbase，主通道）：术语质量高；不可用时返回 ''
  */
+/** AI 入口：新版 cloud.ai()（wx-server-sdk >= 3.0.5-beta.1），旧版 cloud.extend.AI */
+function getAIEntry() {
+  try {
+    if (typeof cloud.ai === 'function') {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') return inst
+    }
+  } catch (e) {}
+  if (cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    return cloud.extend.AI
+  }
+  return null
+}
+
 async function translateWithLLM(text) {
   if (!text) return ''
-  if (!(cloud.extend && cloud.extend.AI && cloud.extend.AI.createModel)) return ''
+  const AI = getAIEntry()
+  if (!AI) return ''
 
   const providers = [
     { provider: 'cloudbase', model: 'hy3-preview' },
@@ -322,7 +342,7 @@ async function translateWithLLM(text) {
 
   for (const p of providers) {
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
 
       const res = await Promise.race([
         model.generateText({
@@ -344,7 +364,7 @@ async function translateWithLLM(text) {
 
     // 部分环境下 generateText 不可用，回退 streamText
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
       if (typeof model.streamText !== 'function') continue
       const streamRes = await Promise.race([
         model.streamText({
@@ -493,13 +513,23 @@ async function fetchTweetDetail(screenName, tweetId) {
 }
 
 /**
- * 从 fxtwitter tweet 对象中提取作者头像原始 URL
+ * 从 fxtwitter tweet 对象中提取「追踪账号本人」头像原始 URL。
+ * 必须校验 screen_name：转推/引用里 author 常是原作者，若不校验会把别人头像
+ * 写进 avatars/{本账号}.jpg，造成前端头像串号。
  */
-function extractAvatarRawUrl(tweet) {
+function extractAvatarRawUrl(tweet, expectedScreenName) {
   if (!tweet) return ''
-  if (tweet.author && tweet.author.avatar_url) return tweet.author.avatar_url
-  if (tweet.user && tweet.user.profile_image_url_https) return tweet.user.profile_image_url_https
-  return ''
+  const expect = String(expectedScreenName || '').trim().toLowerCase()
+  const author = tweet.author || tweet.user || null
+  if (!author) return ''
+  if (expect) {
+    const actual = String(
+      author.screen_name || author.screenName || author.username || author.userName || ''
+    ).trim().toLowerCase()
+    // 缺作者名也拒绝：避免转推/脏 payload 在无 screen_name 时仍写入本账号 COS
+    if (!actual || actual !== expect) return ''
+  }
+  return author.avatar_url || author.profile_image_url_https || author.profile_image_url || ''
 }
 
 const AVATAR_CHECK_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000 // 30 天
@@ -555,10 +585,18 @@ async function ensureAvatarCOS(account, rawAvatarUrl) {
   try {
     const cosUrl = await uploadAvatarToCOS(rawAvatarUrl, account.screenName)
     if (cosUrl && account._id) {
+      // avatarUrl 与 avatarCosUrl 同步更新：统计胶囊读的是 avatarUrl，只写一次会永久串/过期
       await db.collection(ACCOUNTS_COLLECTION).doc(account._id).update({
-        data: { avatarCosUrl: cosUrl, avatarRawUrl: rawAvatarUrl, avatarCheckedAt: now, updatedAt: now }
+        data: {
+          avatarCosUrl: cosUrl,
+          avatarUrl: cosUrl,
+          avatarRawUrl: rawAvatarUrl,
+          avatarCheckedAt: now,
+          updatedAt: now
+        }
       })
       account.avatarCosUrl = cosUrl
+      account.avatarUrl = cosUrl
       account.avatarRawUrl = rawAvatarUrl
       account.avatarCheckedAt = now
       console.log(`[Sync] ${account.screenName} 头像已上传 COS: ${cosUrl}`)
@@ -596,18 +634,39 @@ function isContentTranslated(tweet) {
   return containsChinese(tweet.text || '')
 }
 
+/** 替换/追加推特图片 URL 的 name 尺寸参数（orig/large/medium…） */
+function withTwitterImageName(url, name) {
+  if (url.includes('name=')) return url.replace(/name=[^&]*/, `name=${name}`)
+  return url + (url.includes('?') ? '&' : '?') + `name=${name}`
+}
+
+const EVENT_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
 async function uploadImageToCOS(imageUrl, tweetId, index, cosFolder) {
   const cos = createCOSClient()
-  let imgUrl = imageUrl
-  if (imgUrl.includes('name=orig')) imgUrl = imgUrl.replace('name=orig', 'name=medium')
-  else if (!imgUrl.includes('name=')) imgUrl += (imgUrl.includes('?') ? '&' : '?') + 'name=medium'
 
-  const downloadUrl = WORKER_PROXY_URL
-    ? `${WORKER_PROXY_URL}/image?url=${encodeURIComponent(imgUrl)}`
-    : imgUrl
-
-  const buffer = await httpsGetBuffer(downloadUrl, 25000)
-  if (buffer.length > 6 * 1024 * 1024) return null
+  // 入库存原图（会员下载用），预览压缩由前端 imageMogr2 处理；
+  // orig 超限/失败时降级 large（2048px），避免整张图丢失
+  let buffer = null
+  let imgUrl = ''
+  let lastErr = null
+  for (const name of ['orig', 'large']) {
+    const candidate = withTwitterImageName(imageUrl, name)
+    const downloadUrl = WORKER_PROXY_URL
+      ? `${WORKER_PROXY_URL}/image?url=${encodeURIComponent(candidate)}`
+      : candidate
+    try {
+      buffer = await httpsGetBuffer(downloadUrl, 25000, EVENT_IMAGE_MAX_BYTES)
+      imgUrl = candidate
+      break
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  if (!buffer) {
+    if (lastErr && !String(lastErr.message).startsWith('EXCEEDS_MAX_SIZE')) throw lastErr
+    return null
+  }
 
   const ext = imgUrl.includes('format=png') ? '.png' : '.jpg'
   const key = `${cosFolder}/${tweetId}_${index}${ext}`
@@ -913,8 +972,7 @@ async function createEvent(data) {
       tweetUrl: data.tweetUrl,
       publishedAt,
       createdAt: now,
-      updatedAt: now,
-      bilibiliSyncStatus: 'idle'
+      updatedAt: now
     }
   const res = await db.collection(COLLECTION).add({ data: payload })
   return res._id
@@ -1090,6 +1148,9 @@ async function syncAccount(account, options = {}) {
             thumbnailUrl: thumbCosUrl || video.thumbnail_url || '',
             sourceUrl: tweetUrl                      // 保留原始推文链接作为备用
           }
+          // 时长入库：回填转普通视频后（isLongVideo 被摘除）仍能识别「长视频」
+          const durSec = Math.round(Number(video.duration) || 0)
+          if (durSec > 0) mediaEntry.durationSec = durSec
           // 未存储到 COS 的视频：保留直链供前端复制，长视频额外打标（前端显示"长视频"角标）
           if (!videoCosUrl) {
             mediaEntry.videoUrl = videoDirectUrl || ''
@@ -1098,30 +1159,25 @@ async function syncAccount(account, options = {}) {
           mediaList.push(mediaEntry)
         }
 
-        const rawAvatarUrl = extractAvatarRawUrl(tweet)
+        const rawAvatarUrl = extractAvatarRawUrl(tweet, screenName)
         const avatarCosUrl = await ensureAvatarCOS(account, rawAvatarUrl)
+        // 约定路径兜底：即使本轮未抓到本人头像，事件也挂本账号 COS 头像，避免空/串
+        const authorAvatar =
+          avatarCosUrl ||
+          account.avatarCosUrl ||
+          (screenName ? `${COS_BASE_URL}avatars/${screenName}.jpg` : '')
 
         const eventId = await createEvent({
           title, content, mediaList, author,
           originalText: tweet.text || '',
           translated: isContentTranslated(tweet),
-          authorAvatar: avatarCosUrl,
+          authorAvatar,
           source: screenName,
           tweetId,
           tweetUrl,
           // 回填的旧推文按实际发布时间入库，保持信息流时间顺序
           publishedAt: backfill && tweetTime > 0 ? tweetTime : undefined
         })
-
-        // 首次获取到头像时，回写 tweet_accounts 集合（兼容旧字段）
-        if (avatarCosUrl && !account.avatarUrl && account._id) {
-          try {
-            await db.collection(ACCOUNTS_COLLECTION).doc(account._id).update({
-              data: { avatarUrl: avatarCosUrl, updatedAt: Date.now() }
-            })
-            account.avatarUrl = avatarCosUrl
-          } catch (e) {}
-        }
 
         result.published++
         result.details.push({ tweetId, eventId, title, status: 'published', mediaCount: mediaList.length })
@@ -1171,26 +1227,74 @@ async function deleteCOSFiles(keys) {
   return removed
 }
 
-async function cleanOldEvents() {
-  const countRes = await db.collection(COLLECTION).count()
-  const total = countRes.total
-  if (total <= MAX_EVENTS) return 0
+/** SpaceX 官方发射短片要留给 mission-replay 匹配，窗口内有 COS 预览的不进清理 */
+function shouldKeepForReplayClips(item, nowMs = Date.now()) {
+  if (String(item && item.source || '').toLowerCase() !== 'spacex') return false
+  const age = nowMs - Number(item.publishedAt || 0)
+  if (age <= 0 || age > REPLAY_KEEP_DAYS * 24 * 60 * 60 * 1000) return false
+  return (item.mediaList || []).some((m) =>
+    m && m.type === 'video' && !m.isLongVideo &&
+    typeof m.previewUrl === 'string' && m.previewUrl.startsWith(COS_BASE_URL)
+  )
+}
 
-  const toDelete = total - MAX_EVENTS
-  const oldEvents = await db.collection(COLLECTION)
+function isExpiredTweetEvent(item, nowMs = Date.now()) {
+  if (!item || !item.tweetId) return false
+  if (shouldKeepForReplayClips(item, nowMs)) return false
+  const ts = Number(item.publishedAt || item.createdAt || 0)
+  if (!ts) return true
+  return nowMs - ts > EVENT_TTL_DAYS * 24 * 60 * 60 * 1000
+}
+
+async function removeEventAndMedia(item) {
+  const keys = extractCOSKeys(item.mediaList)
+  const cosRemoved = await deleteCOSFiles(keys)
+  await db.collection(COLLECTION).doc(item._id).remove()
+  return cosRemoved
+}
+
+async function cleanOldEvents() {
+  const nowMs = Date.now()
+  let deleted = 0
+  let skipped = 0
+  let cosRemoved = 0
+
+  const oldest = await db.collection(COLLECTION)
     .orderBy('publishedAt', 'asc')
-    .limit(toDelete)
+    .limit(80)
     .get()
 
-  let deleted = 0
-  let cosRemoved = 0
-  for (const item of oldEvents.data) {
-    const keys = extractCOSKeys(item.mediaList)
-    cosRemoved += await deleteCOSFiles(keys)
-    await db.collection(COLLECTION).doc(item._id).remove()
+  for (const item of oldest.data || []) {
+    if (!isExpiredTweetEvent(item, nowMs)) {
+      if (item.tweetId && shouldKeepForReplayClips(item, nowMs)) skipped++
+      continue
+    }
+    cosRemoved += await removeEventAndMedia(item)
     deleted++
   }
-  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，剩余 ${MAX_EVENTS} 条`)
+
+  const countRes = await db.collection(COLLECTION).count()
+  const total = countRes.total || 0
+  if (total > MAX_EVENTS) {
+    let stillNeed = total - MAX_EVENTS
+    const capBatch = await db.collection(COLLECTION)
+      .orderBy('publishedAt', 'asc')
+      .limit(stillNeed + 40)
+      .get()
+    for (const item of capBatch.data || []) {
+      if (stillNeed <= 0) break
+      if (!item.tweetId) continue
+      if (shouldKeepForReplayClips(item, nowMs)) {
+        skipped++
+        continue
+      }
+      cosRemoved += await removeEventAndMedia(item)
+      deleted++
+      stillNeed--
+    }
+  }
+
+  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，保留 SpaceX 集锦 ${skipped} 条（TTL ${EVENT_TTL_DAYS}天）`)
   return deleted
 }
 
@@ -1466,13 +1570,22 @@ exports.main = async (event = {}) => {
       try {
         const tweetIds = await fetchTimelineTweetIds(acc.screenName)
         if (!tweetIds || !tweetIds.length) continue
-        const tweet = await fetchTweetDetail(acc.screenName, tweetIds[0])
-        if (!tweet) continue
-        const rawUrl = extractAvatarRawUrl(tweet)
+        // 时间线首条常为转推：最多探 4 条找本人推文（控制详情请求预算）
+        let rawUrl = ''
+        const probeIds = tweetIds.slice(0, 4)
+        for (const tid of probeIds) {
+          if (Date.now() - startTime > 50000) break
+          const tweet = await fetchTweetDetail(acc.screenName, tid)
+          if (!tweet) continue
+          rawUrl = extractAvatarRawUrl(tweet, acc.screenName)
+          if (rawUrl) break
+        }
         if (rawUrl) {
           console.log(`[Sync] ${acc.screenName} 原始头像 URL: ${rawUrl}`)
           await ensureAvatarCOS(acc, rawUrl)
           console.log(`[Sync] 主动补全/刷新 ${acc.screenName} 头像`)
+        } else {
+          console.warn(`[Sync] ${acc.screenName} 跳过头像刷新：前 ${probeIds.length} 条均为转推或无本人头像`)
         }
       } catch (e) {
         console.warn(`[Sync] 补全 ${acc.screenName} 头像失败: ${e.message}`)
@@ -1480,28 +1593,31 @@ exports.main = async (event = {}) => {
     }
   }
 
-  // 批量给缺少头像的已有事件补上 COS 头像
+  // 批量补齐/纠偏事件头像：空、代理链、或挂了别的账号头像路径
   try {
     const avatarMap = {}
     for (const acc of allAccounts) {
       if (acc.avatarCosUrl && acc.avatarCosUrl.startsWith(COS_BASE_URL)) {
         avatarMap[acc.screenName] = acc.avatarCosUrl
+      } else if (acc.screenName) {
+        avatarMap[acc.screenName] = `${COS_BASE_URL}avatars/${acc.screenName}.jpg`
       }
     }
     if (Object.keys(avatarMap).length > 0) {
-      const allEvents = await db.collection(COLLECTION).where(db.command.or(
-        { authorAvatar: db.command.eq('') },
-        { authorAvatar: db.command.exists(false) },
-        // 也替换旧的代理 URL 为 COS URL
-        { authorAvatar: db.RegExp({ regexp: '^https://api\\.marsx', options: '' }) }
-      )).limit(MAX_EVENTS).get()
+      const allEvents = await db.collection(COLLECTION)
+        .orderBy('publishedAt', 'desc')
+        .limit(MAX_EVENTS)
+        .field({ source: true, authorAvatar: true })
+        .get()
       for (const evt of (allEvents.data || [])) {
-        const avatar = avatarMap[evt.source]
-        if (avatar) {
-          try {
-            await db.collection(COLLECTION).doc(evt._id).update({ data: { authorAvatar: avatar } })
-          } catch (e) {}
-        }
+        const expect = avatarMap[evt.source]
+        if (!expect) continue
+        const cur = String(evt.authorAvatar || '')
+        const pathOk = cur.indexOf(`/avatars/${evt.source}.jpg`) !== -1
+        if (pathOk) continue
+        try {
+          await db.collection(COLLECTION).doc(evt._id).update({ data: { authorAvatar: expect } })
+        } catch (e) {}
       }
     }
   } catch (e) {
@@ -1521,21 +1637,6 @@ exports.main = async (event = {}) => {
   const elapsed = Date.now() - startTime
   console.log(`[Sync] 全部完成: ${totalPublished} 条发布, ${totalFailed} 条失败, 补翻译 ${retranslated} 条, 清理 ${cleaned} 条, 预览回填 ${JSON.stringify(videoPreviewBackfill)}, 耗时 ${elapsed}ms`)
 
-  // 有新事件时立刻触发 B 站入队（不等 publishBilibiliFromEvents 定时器）
-  let bilibiliEnqueue = null
-  if (totalPublished > 0) {
-    try {
-      const biliRes = await cloud.callFunction({
-        name: 'publishBilibiliFromEvents',
-        data: { from: 'tweet_sync', published: totalPublished }
-      })
-      bilibiliEnqueue = biliRes && biliRes.result ? biliRes.result : biliRes
-      console.log('[Sync] 已触发 B 站入队', JSON.stringify(bilibiliEnqueue))
-    } catch (e) {
-      console.warn('[Sync] 触发 B 站入队失败（请确认已部署 publishBilibiliFromEvents 及定时触发器）:', e.message || e)
-    }
-  }
-
   return {
     code: 0,
     message: totalPublished > 0 ? 'ok' : '没有新推文',
@@ -1544,7 +1645,6 @@ exports.main = async (event = {}) => {
     retranslated,
     cleaned,
     videoPreviewBackfill,
-    bilibiliEnqueue,
     elapsed
   }
 }

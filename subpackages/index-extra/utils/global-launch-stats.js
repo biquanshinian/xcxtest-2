@@ -6,14 +6,25 @@
 const {
   fetchGlobalSummaryFromCloud,
   fetchGlobalBreakdownFromCloud,
-  readPersistSnapshot
+  fetchLaunchSummaryFromCloud,
+  readPersistSnapshot,
+  readLaunchSummarySnapshotTotal
 } = require('../../../utils/launch-stats-cloud.js')
+const {
+  mergeGlobalLaunchStatsParts,
+  homeSummaryToGlobalPayload,
+  pickAlignedSummary
+} = require('./global-launch-stats-merge.js')
 const { getAgencies } = require('../../../utils/api-monitor-data.js')
+const { getLaunchStatsFromDB, readCardGlobalTotalSync } = require('../../../utils/api-app-services.js')
 const { logoUrlFromAgencyRecord } = require('../../../utils/upcoming-agency-logo-enrich.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
+const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { getRocketImage } = require('../../../utils/util.js')
-const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+const { pickLocalized, zhField } = require('../../../utils/locale.js')
+const { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
 
 /** ISO 3166-1 alpha-3 → alpha-2（用于国旗 emoji） */
 const ISO3_TO_ALPHA2 = {
@@ -120,8 +131,39 @@ function getAgencyKeyFromMission(mission) {
   return name || abbr || '未知机构'
 }
 
+function getAgencyIdFromMission(mission) {
+  const id = mission && mission.launchAgencyId
+  return id != null && String(id).trim() !== '' ? String(id).trim() : ''
+}
+
 function getRocketKeyFromMission(mission) {
   return String((mission && mission.rocketName) || '').trim() || '未知型号'
+}
+
+function getConfigIdFromMission(mission) {
+  const id = mission && (mission.rocketConfigId != null ? mission.rocketConfigId : mission.configId)
+  return id != null && String(id).trim() !== '' ? String(id).trim() : ''
+}
+
+function tallyId(prev, field, id) {
+  if (!id) return
+  prev[field] = prev[field] || {}
+  prev[field][id] = (prev[field][id] || 0) + 1
+}
+
+function pickMajorityId(counts) {
+  const map = counts && typeof counts === 'object' ? counts : null
+  if (!map) return ''
+  let best = ''
+  let n = 0
+  Object.keys(map).forEach((id) => {
+    const c = Number(map[id]) || 0
+    if (c > n) {
+      n = c
+      best = id
+    }
+  })
+  return best
 }
 
 function filterMissions(missions, year, countryKey) {
@@ -149,6 +191,8 @@ function bumpBucket(map, key, meta, mission) {
   prev.total += 1
   if (outcome.success) prev.success += 1
   if (outcome.failure) prev.failure += 1
+  if (meta && meta.agencyId) tallyId(prev, '_agencyIds', meta.agencyId)
+  if (meta && meta.configId) tallyId(prev, '_configIds', meta.configId)
   map.set(key, prev)
 }
 
@@ -159,6 +203,12 @@ function finalizeBuckets(map) {
     row.successPct = Math.round((row.success / denom) * 100)
     row.failurePct = Math.round((row.failure / denom) * 100)
     row.successFailText = `${row.success}成功 / ${row.failure}失败`
+    const agencyId = pickMajorityId(row._agencyIds)
+    const configId = pickMajorityId(row._configIds)
+    if (agencyId) row.agencyId = agencyId
+    if (configId) row.configId = configId
+    delete row._agencyIds
+    delete row._configIds
   })
   return rows.sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total
@@ -180,10 +230,10 @@ function aggregateLaunchStats(missions) {
     }, m)
 
     const agencyKey = getAgencyKeyFromMission(m)
-    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '' }, m)
+    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '', agencyId: getAgencyIdFromMission(m) }, m)
 
     const rocketKey = getRocketKeyFromMission(m)
-    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '' }, m)
+    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '', configId: getConfigIdFromMission(m) }, m)
   })
 
   const total = list.length
@@ -232,22 +282,55 @@ function buildCountryOptions(missions, year) {
   ]
 }
 
-function readPersistedGlobalStats(year, countryKey) {
+/**
+ * 首页卡片那个年度总数（本地缓存，零请求）。
+ * 卡片优先 getSummary，notReady 才回捞 launch_stats；这里把两份本地痕迹都取上，
+ * 详情页头部据此对齐，卡片显示什么详情页就不会比它小。
+ */
+function readHomeCardTotalSync(year) {
+  const candidates = [readCardGlobalTotalSync(year), readLaunchSummarySnapshotTotal(year)]
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return candidates.length ? Math.max.apply(null, candidates) : null
+}
+
+/** 与卡片同一支函数取数（自带缓存，通常不产生额外请求）；仅当年、全部国家适用 */
+async function resolveHomeCardTotal(year) {
+  const local = readHomeCardTotalSync(year)
+  if (Number(year) !== new Date().getUTCFullYear()) return local
+  try {
+    const stats = await getLaunchStatsFromDB()
+    const n = Number(stats && stats.globalThisYear)
+    if (Number.isFinite(n) && n > 0) return Math.max(n, local || 0)
+  } catch (e) {}
+  return local
+}
+
+function readPersistedGlobalStats(year, countryKey, options = {}) {
+  const allowExpired = !!(options && options.allowExpired)
+  const persistOpts = allowExpired ? { allowExpired: true } : {}
   const summaryKey = `_launch_global_summary_cloud_${year}_${countryKey}`
   const breakdownKey = `_launch_global_breakdown_cloud_${year}_${countryKey}`
   const legacyKey = `_launch_global_stats_cloud_${year}_${countryKey}`
-  const breakdown = readPersistSnapshot(breakdownKey) || readPersistSnapshot(legacyKey)
-  const summary = readPersistSnapshot(summaryKey)
+  const breakdown = readPersistSnapshot(breakdownKey, persistOpts) || readPersistSnapshot(legacyKey, persistOpts)
+  const summary = readPersistSnapshot(summaryKey, persistOpts)
   if (!summary && !breakdown) return null
   const data = breakdown && breakdown.data ? breakdown.data : {}
   const sumData = summary && summary.data ? summary.data : {}
+  // 三份本地快照（汇总/明细/首页卡片）刷新时间不同，按同一套对齐规则取较全的一份，首屏就与卡片一致
+  const homeTotal = countryKey === ALL_COUNTRY_KEY ? readHomeCardTotalSync(year) : null
+  const localSummary = pickAlignedSummary([
+    sumData.summary,
+    data.summary,
+    homeTotal != null ? { total: homeTotal } : null
+  ]) || { total: 0, success: 0, failure: 0 }
   return {
-    summary: (sumData.summary || data.summary || { total: 0, success: 0, failure: 0 }),
+    summary: localSummary,
+    summaryPartial: localSummary.total > 0 && !localSummary.success && !localSummary.failure,
     byCountry: data.byCountry || [],
     byAgency: data.byAgency || [],
     byRocket: data.byRocket || [],
     countryOptions: data.countryOptions || [],
-    staleCache: !!(summary && summary.stale) || !!(breakdown && breakdown.stale),
+    staleCache: !!(summary && summary.stale) || !!(breakdown && breakdown.stale) || !!(summary && summary.expired) || !!(breakdown && breakdown.expired),
     clientStaleFallback: true
   }
 }
@@ -280,9 +363,22 @@ async function fetchGlobalLaunchStats(options = {}) {
     ...extra
   })
 
+  // 汇总先到时也要按卡片口径出数，避免先闪一个偏小的总数再跳
+  const localHomeTotal = countryKey === ALL_COUNTRY_KEY ? readHomeCardTotalSync(year) : null
+  const alignWithHome = (mapped) => {
+    if (localHomeTotal == null) return mapped
+    const summary = pickAlignedSummary([mapped.summary, { total: localHomeTotal }])
+    if (!summary) return mapped
+    return {
+      ...mapped,
+      summary,
+      summaryPartial: summary.total > 0 && !summary.success && !summary.failure
+    }
+  }
+
   const summaryPromise = fetchGlobalSummaryFromCloud({ year, countryKey, forceRefresh, skipLocalCache })
     .then((data) => {
-      const mapped = mapCloudPayload(data, { breakdownReady: false })
+      const mapped = alignWithHome(mapCloudPayload(data, { breakdownReady: false }))
       if (onSummary) onSummary(mapped)
       return mapped
     })
@@ -290,86 +386,54 @@ async function fetchGlobalLaunchStats(options = {}) {
   const breakdownPromise = fetchGlobalBreakdownFromCloud({ year, countryKey, forceRefresh, skipLocalCache })
     .then((data) => mapCloudPayload(data, { breakdownReady: true }))
 
+  // 与首页卡片同源的年度总数，用于头部对齐；失败不影响主流程
+  const homeTotalPromise = countryKey === ALL_COUNTRY_KEY
+    ? resolveHomeCardTotal(year).catch(() => null)
+    : Promise.resolve(null)
+
   const [summarySettled, breakdownSettled] = await Promise.allSettled([
     summaryPromise,
     breakdownPromise
   ])
+  const homeTotal = await homeTotalPromise
 
-  let summaryResult = {
-    year,
-    summary: { total: 0, success: 0, failure: 0 },
-    staleCache: false,
-    clientStaleFallback: false,
-    summaryPartial: true,
-    breakdownReady: false
-  }
-  let breakdownResult = {
-    byCountry: [],
-    byAgency: [],
-    byRocket: [],
-    countryOptions: [],
-    breakdownReady: false
-  }
-
-  if (summarySettled.status === 'fulfilled') {
-    summaryResult = summarySettled.value
-  } else {
-    const persist = readPersistedGlobalStats(year, countryKey)
-    if (persist) {
-      summaryResult = mapCloudPayload({
-        ...persist,
-        clientStaleFallback: true,
-        staleCache: true
-      }, { breakdownReady: false })
-      if (onSummary) onSummary(summaryResult)
-    } else {
-      throw summarySettled.reason
-    }
-  }
-
-  if (breakdownSettled.status === 'fulfilled') {
-    breakdownResult = breakdownSettled.value
-  } else {
-    const persist = readPersistedGlobalStats(year, countryKey)
-    if (persist && ((persist.byCountry || []).length || (persist.byAgency || []).length)) {
-      breakdownResult = mapCloudPayload({
-        ...persist,
-        clientStaleFallback: true,
-        staleCache: true,
-        breakdownReady: true
-      })
-    } else if (summaryResult.summary && summaryResult.summary.total > 0) {
-      breakdownResult = {
-        ...breakdownResult,
-        summary: summaryResult.summary,
-        staleCache: summaryResult.staleCache,
-        clientStaleFallback: summaryResult.clientStaleFallback,
-        loadError: (breakdownSettled.reason && breakdownSettled.reason.message) || '明细加载失败'
-      }
-    } else {
-      throw breakdownSettled.reason
-    }
-  }
-
-  // 头部数字优先级：明细未截断时用明细 summary（含国家维度一致）；
-  // 明细 partial（往年易发）时改用 getGlobalSummary 的 count-only 精确结果，
-  // 避免 success+failure<total 的错误数字被显示。
-  const breakdownPartial = !!breakdownResult.partial
-  const breakdownSummaryUsable = breakdownResult.summary && breakdownResult.summary.total && !breakdownPartial
-  const summaryFromCount = summaryResult.summary && summaryResult.summary.total
-    ? summaryResult.summary
+  const persist = readPersistedGlobalStats(year, countryKey)
+    || readPersistedGlobalStats(year, countryKey, { allowExpired: true })
+  const allPersist = countryKey !== ALL_COUNTRY_KEY
+    ? (readPersistedGlobalStats(year, ALL_COUNTRY_KEY)
+      || readPersistedGlobalStats(year, ALL_COUNTRY_KEY, { allowExpired: true }))
     : null
 
-  return {
-    ...summaryResult,
-    ...breakdownResult,
-    summary: breakdownSummaryUsable
-      ? breakdownResult.summary
-      : (summaryFromCount || breakdownResult.summary || summaryResult.summary),
-    breakdownReady: !!breakdownResult.breakdownReady
-      || (breakdownResult.byCountry || []).length > 0
-      || (breakdownResult.byAgency || []).length > 0
+  let merged
+  try {
+    merged = mergeGlobalLaunchStatsParts({
+      year,
+      countryKey,
+      summarySettled,
+      breakdownSettled,
+      persist,
+      allPersist,
+      homeTotal
+    })
+  } catch (err) {
+    if (countryKey === ALL_COUNTRY_KEY) {
+      try {
+        const home = await fetchLaunchSummaryFromCloud({ year, forceRefresh, skipLocalCache })
+        const fallback = homeSummaryToGlobalPayload(home, year)
+        if (fallback) return mapCloudPayload(fallback, { breakdownReady: false })
+      } catch (e2) {}
+    }
+    throw err
   }
+
+  if (onSummary && summarySettled.status !== 'fulfilled' && merged.summary) {
+    onSummary(mapCloudPayload(merged, { breakdownReady: false }))
+  }
+
+  return mapCloudPayload(merged, {
+    breakdownReady: !!merged.breakdownReady,
+    loadError: merged.loadError || ''
+  })
 }
 
 // ── 机构 logo / 火箭配置图装饰 ──────────────────────────────────────────
@@ -382,8 +446,52 @@ function firstGlyphOfName(name) {
 
 let _agencyLogoMapPromise = null
 
+function putAgencyLookup(map, key, rec) {
+  const k = String(key || '').trim().toLowerCase()
+  if (!k || !rec) return
+  const prev = map.get(k)
+  if (!prev) {
+    map.set(k, rec)
+    return
+  }
+  if (typeof prev === 'string') {
+    map.set(k, {
+      url: rec.url || prev,
+      id: rec.id || '',
+      abbrev: rec.abbrev || '',
+      name: rec.name || '',
+      nameZh: rec.nameZh || ''
+    })
+    return
+  }
+  map.set(k, {
+    url: rec.url || prev.url || '',
+    id: rec.id || prev.id || '',
+    abbrev: rec.abbrev || prev.abbrev || '',
+    name: rec.name || prev.name || '',
+    nameZh: rec.nameZh || prev.nameZh || ''
+  })
+}
+
+function readAgencyLookup(logoMap, row) {
+  const keys = [
+    String((row && row.name) || '').trim().toLowerCase(),
+    String((row && row.abbrev) || '').trim().toLowerCase(),
+    String((row && row.key) || '').trim().toLowerCase()
+  ]
+  if (!logoMap || typeof logoMap.get !== 'function') return null
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue
+    const v = logoMap.get(keys[i])
+    if (!v) continue
+    if (typeof v === 'string') return { url: v, id: '', abbrev: '', name: '', nameZh: '' }
+    return v
+  }
+  return null
+}
+
 /**
- * 机构名/缩写（小写）→ logo URL 映射。
+ * 机构名/缩写（小写）→ { url, id, abbrev, nameZh }。
  * 数据来自 getAgencies（云数据库同步集合，自带本地 Storage 缓存），不打 LL2。
  */
 function loadAgencyLogoNameMap() {
@@ -394,46 +502,82 @@ function loadAgencyLogoNameMap() {
       const results = (data && data.results) || []
       for (let i = 0; i < results.length; i++) {
         const a = results[i]
-        const url = logoUrlFromAgencyRecord(a)
-        if (!url) continue
-        const name = String((a && a.name) || '').trim().toLowerCase()
-        const abbrev = String((a && a.abbrev) || '').trim().toLowerCase()
-        if (name && !map.has(name)) map.set(name, url)
-        if (abbrev && !map.has(abbrev)) map.set(abbrev, url)
+        const rec = {
+          url: logoUrlFromAgencyRecord(a) || '',
+          id: a && a.id != null ? String(a.id) : '',
+          abbrev: String((a && a.abbrev) || '').trim(),
+          name: String((a && a.name) || '').trim(),
+          nameZh: zhField(a, 'name') || ''
+        }
+        if (!rec.url && !rec.id && !rec.name) continue
+        putAgencyLookup(map, rec.name, rec)
+        putAgencyLookup(map, rec.abbrev, rec)
       }
-      map.set('spacex', SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL)
+      putAgencyLookup(map, 'spacex', {
+        url: SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL,
+        id: '',
+        abbrev: 'SpaceX',
+        name: 'SpaceX',
+        nameZh: ''
+      })
       return map
     })
     .catch(() => new Map())
   return _agencyLogoMapPromise
 }
 
+function isUnknownRankName(name) {
+  const s = String(name || '').trim()
+  return !s || s === '未知机构' || s === '未知型号'
+}
+
 /**
- * 机构行补 logo：resolveAgencyLogoForDisplay 命中本地磁盘缓存时直接返回 wxfile 路径，
- * 否则返回远程 URL（页面 bindload 后由 persistAgencyLogoAfterRemoteLoad 落盘，下次零流量）。
+ * 机构行：展示名走发射商图鉴同一条 resolveAgencyDisplayZh；
+ * logo 命中本地磁盘缓存时直接返回 wxfile，否则远程 URL。
+ * 有名称即可点：有 agencyId 走 id，没有则详情页按名称解析。
  */
 function decorateAgencyRows(rows, logoMap) {
   return (rows || []).map((row) => {
-    const key = String(row.name || '').trim().toLowerCase()
-    const remote = logoMap ? (logoMap.get(key) || '') : ''
+    const rec = readAgencyLookup(logoMap, row)
+    const remote = (rec && rec.url) || ''
+    const abbrev = (rec && rec.abbrev) || row.abbrev || ''
+    const displayName =
+      resolveAgencyDisplayZh(row.name, abbrev, (rec && rec.nameZh) || zhField(row, 'name')) ||
+      pickLocalized(zhField(row, 'name'), row.name) ||
+      row.name
+    const agencyId = row && row.agencyId != null && String(row.agencyId).trim() !== ''
+      ? String(row.agencyId).trim()
+      : ''
     return {
       ...row,
-      // 展示名走发射商词典（命中则中文）；row.name 保留英文供 logo 匹配
-      displayName: translateAgencyName(row.name, row.abbrev) || row.name,
+      displayName,
+      agencyId: agencyId ? String(agencyId) : '',
+      agencyAbbrev: abbrev,
+      clickable: !isUnknownRankName(row.name),
       logo: remote ? resolveAgencyLogoForDisplay(remote) : '',
       logoRemote: remote,
-      initial: firstGlyphOfName(row.name)
+      logoBgTone: remote ? resolveAgencyLogoBgTone(remote) : '',
+      initial: firstGlyphOfName(displayName || row.name)
     }
   })
 }
 
-/** 火箭行补配置图：getRocketImage 内置本地磁盘缓存（首次远程展示后后台落盘） */
+/** 火箭行补配置图 + 与列表卡同一套型号汉化；有名称即可点，点按后再升到最新款 */
 function decorateRocketRows(rows) {
-  return (rows || []).map((row) => ({
-    ...row,
-    image: getRocketImage(row.name) || '',
-    initial: firstGlyphOfName(row.name)
-  }))
+  return (rows || []).map((row) => {
+    const displayName = translateRocketName(row.name) || row.name
+    const configId = row && row.configId != null && String(row.configId).trim() !== ''
+      ? String(row.configId).trim()
+      : ''
+    return {
+      ...row,
+      displayName,
+      configId,
+      clickable: !isUnknownRankName(row.name),
+      image: getRocketImage(row.name) || '',
+      initial: firstGlyphOfName(displayName || row.name)
+    }
+  })
 }
 
 module.exports = {
@@ -448,5 +592,6 @@ module.exports = {
   readPersistedGlobalStats,
   loadAgencyLogoNameMap,
   decorateAgencyRows,
-  decorateRocketRows
+  decorateRocketRows,
+  isUnknownRankName
 }

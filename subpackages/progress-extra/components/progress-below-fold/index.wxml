@@ -1,0 +1,203 @@
+<view class="progress-below-fold {{themeClass}}">
+<!-- 封路通知（API + DB覆盖） -->
+    <view class="notice-section">
+      <view class="section-title">
+        <text>星舰基地封路通知</text>
+      </view>
+      <view class="notice-card glass-card" wx:if="{{roadClosure.isActive}}" bindtap="emitOpenRoadClosureDetail">
+        <view class="notice-map-entry" catchtap="emitOpenRoadClosureMap">
+          <text>查看封路地图</text>
+        </view>
+        <view class="notice-header">
+          <view class="notice-icon notice-icon--closure"></view>
+          <text class="notice-title">交通管制信息</text>
+          <text class="notice-source" wx:if="{{roadClosure.source}}">{{roadClosure.source === 'starbase_gov' ? 'Starbase.gov' : roadClosure.source === 'spacedevs' ? 'SpaceDevs' : roadClosure.source === 'manual' ? '管理员' : ''}}</text>
+        </view>
+        <text class="notice-message">{{roadClosure.message}}</text>
+        <view class="notice-schedule" wx:if="{{roadClosure.roadDelays && roadClosure.roadDelays.length > 0}}">
+          <text class="schedule-label">道路延迟</text>
+          <text class="schedule-item" wx:for="{{roadClosure.roadDelays}}" wx:key="index">{{item}}</text>
+        </view>
+        <view class="notice-time" wx:if="{{roadClosure.timeRange}}">
+          <text class="time-label">时间范围</text>
+          <text class="time-value">{{roadClosure.timeRange}}</text>
+        </view>
+      </view>
+      <view class="notice-card glass-card" wx:else>
+        <view class="notice-empty">
+          <block wx:if="{{roadClosureSyncing || roadClosureStatus === 'loading'}}">
+            <text class="notice-no-data">正在获取最新封路数据...</text>
+          </block>
+          <block wx:elif="{{roadClosureStatus === 'error'}}">
+            <text class="notice-no-data">封路数据获取失败</text>
+            <text class="notice-hint">网络异常，请下拉刷新重试</text>
+          </block>
+          <block wx:else>
+            <text class="notice-no-data">官网当前无封路记录</text>
+            <text class="notice-hint">Boca Chica 道路/海滩正常通行</text>
+          </block>
+        </view>
+      </view>
+    </view>
+
+    <!-- SPACE_NOTICES_FEATURE：星舰发射通告地图（与在轨追踪同款入口卡） -->
+    <view class="mission-sim-section" wx:if="{{enableSpaceNotices}}">
+      <view class="mission-sim-entry mission-sim-entry--wechat" bindtap="emitOpenStarshipSpaceNotices" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">SPACE NOTICES</text>
+          </view>
+          <text class="mission-sim-entry-title">星舰发射航警地图</text>
+          <text class="mission-sim-entry-desc">一键直达星舰发射 NOTAM / 航海危险区与飞行走廊</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 在轨飞行器追踪（复用 mission-sim 入口卡样式，微信绿变体） -->
+    <view class="mission-sim-section">
+      <view class="mission-sim-entry mission-sim-entry--wechat" bindtap="emitOpenVehicleTracker" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">VEHICLE TRACKER</text>
+          </view>
+          <text class="mission-sim-entry-title">SpaceX在轨飞行器追踪</text>
+          <text class="mission-sim-entry-desc">官网同源遥测 · 可拖动 3D 地球实时定位在飞星舰与龙飞船</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 星舰任务指挥室（互动模拟；enableMissionSim 过审开关，failClosed） -->
+    <view class="mission-sim-section" wx:if="{{enableMissionSim}}">
+      <view class="mission-sim-entry" bindtap="emitOpenMissionSim" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">GO / NO-GO · SIM</text>
+          </view>
+          <text class="mission-sim-entry-title">星舰任务指挥室</text>
+          <text class="mission-sim-entry-desc">以飞行总监视角完成一次发射：席位轮询、天气权衡、筷子捕获决策</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="flight-checklist-section nsf-checklist-section">
+      <view class="nsf-checklist-card glass-card">
+        <view class="nsf-checklist-card-header">
+          <view class="nsf-checklist-summary-row">
+            <text class="nsf-checklist-summary-title">星舰飞行检查清单</text>
+            <text class="nsf-checklist-summary-ratio" wx:if="{{nsfChecklistProgressTotal > 0}}">{{nsfChecklistProgressDone}}/{{nsfChecklistProgressTotal}}</text>
+          </view>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:if="{{nsfChecklistSyncing && nsfChecklistItems.length === 0}}">
+          <text>同步中…</text>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:elif="{{nsfChecklistError && nsfChecklistItems.length === 0}}">
+          <text>{{nsfChecklistError}}</text>
+        </view>
+        <view class="nsf-checklist-preview-rows" wx:if="{{nsfChecklistItems.length > 0}}">
+          <view class="flight-checklist-row nsf-checklist-preview-row" wx:for="{{nsfChecklistItems}}" wx:key="id" wx:if="{{index < 3}}">
+            <view class="flight-checklist-check {{item.done ? 'flight-checklist-check--done' : ''}}">
+              <text wx:if="{{item.done}}" class="flight-checklist-check-mark">✓</text>
+            </view>
+            <view class="flight-checklist-main">
+              <text wx:if="{{item.category}}" class="flight-checklist-category">{{item.category}}</text>
+              <text class="flight-checklist-row-title">{{item.title}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="nsf-checklist-expand-row" hover-class="nsf-checklist-expand-row--active" bindtap="emitOnNsfChecklistExpandTap">
+          <text class="nsf-checklist-expand-text">展开</text>
+          <text class="nsf-checklist-expand-chevron">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="flight-checklist-section ll2-progress-pack" wx:if="{{belowFoldSectionsReady && showLaunchLibraryUpdates}}">
+      <view class="nsf-checklist-card glass-card ll2-progress-card">
+        <view class="nsf-checklist-card-header">
+          <view class="nsf-checklist-summary-row">
+            <text class="nsf-checklist-summary-title">星舰飞行时间线</text>
+          </view>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:if="{{ll2TimelineLoading && ll2TimelineRows.length === 0}}">
+          <text>同步中…</text>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:elif="{{ll2TimelineError && ll2TimelineRows.length === 0}}">
+          <text>{{ll2TimelineError}}</text>
+        </view>
+        <view class="nsf-checklist-preview-rows ll2-preview-timeline-rows" wx:elif="{{ll2TimelineRows.length > 0}}">
+          <view class="ll2-timeline-item" wx:for="{{ll2TimelineRows}}" wx:key="id" wx:if="{{index < 3}}">
+            <view class="ll2-timeline-axis">
+              <view class="ll2-timeline-line ll2-timeline-line--up" wx:if="{{index !== 0}}"></view>
+              <view class="ll2-timeline-node">
+                <view class="ll2-timeline-node-mark ll2-timeline-node-mark--{{item.iconVariant}}"></view>
+              </view>
+              <view class="ll2-timeline-line ll2-timeline-line--down" wx:if="{{index < ll2TimelineRows.length - 1 && index < 2}}"></view>
+            </view>
+            <view class="ll2-timeline-main">
+              <text class="{{item.titleClass}}" user-select="{{true}}">{{item.title}}</text>
+              <text class="ll2-timeline-desc" wx:if="{{item.description}}" user-select="{{true}}">{{item.description}}</text>
+            </view>
+            <text class="ll2-timeline-clock">{{item.timeLabel}}</text>
+          </view>
+        </view>
+        <view class="nsf-checklist-expand-row" hover-class="nsf-checklist-expand-row--active" bindtap="emitOnLl2TimelineExpandTap">
+          <text class="nsf-checklist-expand-text">展开</text>
+          <text class="nsf-checklist-expand-chevron">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="flight-checklist-section ll2-progress-pack" wx:if="{{belowFoldSectionsReady && showLaunchLibraryUpdates}}">
+      <view class="nsf-checklist-card glass-card ll2-progress-card">
+        <view class="nsf-checklist-card-header">
+          <view class="nsf-checklist-summary-row">
+            <text class="nsf-checklist-summary-title">星舰动态追踪</text>
+          </view>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:if="{{ll2LaunchUpdatesLoading && ll2LaunchUpdates.length === 0}}">
+          <text>同步中…</text>
+        </view>
+        <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:elif="{{ll2LaunchUpdatesError && ll2LaunchUpdates.length === 0}}">
+          <text>{{ll2LaunchUpdatesError}}</text>
+        </view>
+        <view class="nsf-checklist-preview-rows" wx:elif="{{ll2LaunchUpdates.length > 0}}">
+          <view class="ll2-update-row ll2-update-row--compact" wx:for="{{ll2LaunchUpdates}}" wx:key="id" wx:if="{{index < 3}}">
+            <view class="ll2-update-main">
+              <text class="ll2-update-comment">{{item.commentZh || item.comment}}</text>
+              <text class="ll2-update-meta">{{item.createdBy}}{{item.timeLabel ? ' · ' + item.timeLabel : ''}}</text>
+            </view>
+            <text
+              wx:if="{{item.infoUrl}}"
+              class="flight-checklist-chevron ll2-update-chevron"
+              catchtap="emitOnFlightChecklistDetailTap"
+              data-url="{{item.infoUrl}}"
+            >›</text>
+          </view>
+        </view>
+        <view class="nsf-checklist-expand-row" hover-class="nsf-checklist-expand-row--active" bindtap="emitOnLl2LaunchUpdatesExpandTap">
+          <text class="nsf-checklist-expand-text">展开</text>
+          <text class="nsf-checklist-expand-chevron">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight}}px;"></view>
+</view>

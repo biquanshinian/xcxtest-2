@@ -43,8 +43,8 @@ Component({
   data: {
     show: false,
     safeTopic: DEFAULT_TOPIC,
-    expanded: false,
-    effectiveLimit: DEFAULT_COLLAPSE_LIMIT,
+    expanded: true,
+    effectiveLimit: DEFAULT_EXPAND_LIMIT,
     probeLimit: DEFAULT_COLLAPSE_LIMIT + 1,
     showToggle: false,
     /* 组件样式隔离，页面根的 .theme-light 选择器进不来，浅色态由组件自挂修饰类
@@ -128,7 +128,7 @@ Component({
       this._clearProbeCheck()
       this._isEmpty = false
       this.setData({
-        expanded: false,
+        expanded: true,
         showToggle: false
       })
       this._syncEffectiveLimit()

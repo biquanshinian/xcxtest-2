@@ -1,0 +1,66 @@
+/* 星问详情页：骨架对齐 briefing，内容区复用 ai-chat mode=page */
+
+.ai-chat-detail-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg, #0B0C0E);
+  box-sizing: border-box;
+}
+
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.ai-chat-nav-sub {
+  margin-top: 4rpx;
+  font-size: var(--font-size-xs, 20rpx);
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--color-text-tertiary, #6E6E73);
+}
+
+/* 导航保持通用骨架的 fixed 磨砂条；对话区不留 padding-top，从屏顶起算，
+   导航占位放在消息 scroll-view 内部（topInset），旧消息上滑时穿过导航背后。
+   这样既有玻璃质感，那段留白也不再是内容永远进不去的死高度。 */
+.ai-chat-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: padding-bottom 0.22s ease;
+}
+
+/* 自定义组件宿主默认不继承 flex 高度，不撑满时输入栏会悬在中间 */
+.ai-chat-detail-body ai-chat {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ========== 明亮主题（theme-light）反色覆盖 ========== */
+.ai-chat-detail-page.theme-light {
+  background: var(--color-bg, #F4F5F7);
+}
+
+.ai-chat-detail-page.theme-light .nav-title--page-grid {
+  color: var(--color-text-primary, #1C1C1E);
+  font-weight: 600;
+}
+
+.ai-chat-detail-page.theme-light .ai-chat-nav-sub,
+.theme-light .ai-chat-nav-sub {
+  color: var(--color-text-tertiary, #8E8E93);
+}

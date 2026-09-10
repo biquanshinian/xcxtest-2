@@ -63,3 +63,12 @@ export function completeJob(payload) {
 export function failJob(payload) {
   return request('/replay-agent/fail', { method: 'POST', body: payload })
 }
+
+/** 清 pending 退避 / 复活 failed；resetAttempts=true 时连失败次数一并清零 */
+export function nudgeQueue(payload = { resetAttempts: true }) {
+  return request('/replay-agent/nudge-queue', { method: 'POST', body: payload })
+}
+
+export function triggerScan() {
+  return request('/replay-agent/trigger-scan', { method: 'POST', body: {} })
+}

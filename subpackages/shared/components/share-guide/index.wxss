@@ -1,7 +1,8 @@
 .share-guide {
   position: fixed;
   right: 32rpx;
-  bottom: 120rpx;
+  /* 单页视口底边已在「前往小程序」栏上方；贴底更近，避免悬在半屏 */
+  bottom: 24rpx;
   z-index: 10001;
   animation: guideSlideIn 0.4s ease-out both;
 }
@@ -38,7 +39,7 @@
     box-shadow: 0 8rpx 32rpx rgba(0, 122, 255, 0.35);
   }
   50% {
-    transform: translateY(-20rpx);
+    transform: translateY(-8rpx);
     box-shadow: 0 12rpx 40rpx rgba(0, 122, 255, 0.55);
   }
 }

@@ -1,24 +1,50 @@
 <view class="map-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav">
-      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
-      <text class="nav-title">Starbase 设施图</text>
-      <view class="nav-placeholder"></view>
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">Starbase 设施图</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
-      <view class="map-action-header">
-        <text class="map-action-title">地图工具</text>
-        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+  </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{!isMomentsPreview && mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
       </view>
-      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
-        <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
-        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
-        <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
-      </view>
+      <view class="map-action-btn" wx:if="{{orbitPanoEnabled}}" bindtap="playOrbitPano"><text>环绕全景</text></view>
+      <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
+      <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
+      <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
     </view>
   </view>
 
-  <map class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" bindmarkertap="onMarkerTap"></map>
+  <map
+    wx:if="{{!isMomentsPreview}}"
+    class="main-map"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    enable-scroll="true"
+    enable-zoom="true"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
+    bindmarkertap="onMarkerTap"
+  ></map>
+
+  <view class="moments-map-fallback" wx:else>
+    <text class="moments-map-fallback-title">Starbase 设施图</text>
+    <text class="moments-map-fallback-desc">朋友圈预览中地图暂不可用，点击「前往小程序」查看完整点位与实时状态。</text>
+  </view>
 
   <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
     <view class="state-card" wx:if="{{loading || errorText || emptyText}}">
@@ -79,4 +105,6 @@
       <text class="mini-summary-text">{{selectedFacility.shortName || '暂无设施'}} · {{selectedFacility.status || '状态待同步'}} · {{selectedFacility.focus || currentFocusText}}</text>
     </view>
   </view>
+
+  <share-guide />
 </view>

@@ -1,26 +1,41 @@
 <view class="map-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav">
-      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
-      <text class="nav-title">{{site ? (site.nameZh || site.name) : '发射场详情'}}</text>
-      <view class="nav-placeholder"></view>
-    </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;" wx:if="{{hasCoords}}">
-      <view class="map-action-header">
-        <text class="map-action-title">地图工具</text>
-        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
-        <view class="map-action-btn" bindtap="focusSite"><text>发射场视角</text></view>
-        <view class="map-action-btn" bindtap="resetWorldView"><text>全局视图</text></view>
-        <view class="map-action-btn" bindtap="copyCoords"><text>复制坐标</text></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{site ? (site.nameZh || site.name) : (previewName || '发射场详情')}}</text>
       </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
     <page-progress active="{{loading}}" />
   </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;" wx:if="{{hasCoords && !isMomentsPreview && mapActionTop > 0}}">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
+      <view class="map-action-btn" bindtap="focusSite"><text>发射场视角</text></view>
+      <view class="map-action-btn" bindtap="resetWorldView"><text>全局视图</text></view>
+      <view class="map-action-btn" bindtap="copyCoords"><text>复制坐标</text></view>
+    </view>
+  </view>
 
   <!-- 腾讯地图（小程序原生 map 组件）：定位到发射场坐标，工位加载后追加标记 -->
-  <map wx:if="{{hasCoords}}" class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" enable-satellite="true" bindmarkertap="onMarkerTap"></map>
+  <map wx:if="{{hasCoords && !isMomentsPreview}}" class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" enable-satellite="{{enableSatellite}}" setting="{{mapSetting}}" bindmarkertap="onMarkerTap"></map>
+
+  <!-- 朋友圈单页：隐藏原生 map，防黑屏；有配图则尽量展示 -->
+  <view wx:elif="{{isMomentsPreview}}" class="moments-map-fallback">
+    <image wx:if="{{site && site.imageUrl}}" class="moments-map-fallback-img" src="{{site.imageUrl}}" mode="aspectFill" />
+    <text class="moments-map-fallback-title">{{site ? (site.nameZh || site.name) : (previewName || '发射场详情')}}</text>
+    <text class="moments-map-fallback-desc">{{site ? '点右下角「前往小程序」查看完整点位与工位信息' : '点右下角「前往小程序」查看发射场详情'}}</text>
+  </view>
 
   <!-- 无坐标兜底：LL2 卫星定位图占满地图区域 -->
   <view wx:else class="no-coords-stage">
@@ -28,7 +43,10 @@
     <view wx:else class="no-coords-placeholder"><text>该发射场暂无坐标数据</text></view>
   </view>
 
-  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
+  <view
+    class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}"
+    style="{{panelCollapsed ? '' : panelExpandedStyle}}"
+  >
     <!-- 加载中由导航栏下方的 page-progress 绿色进度条呈现，面板只保留失败态 -->
     <view class="state-card" wx:if="{{!loading && errorText}}">
       <text class="state-title">加载失败</text>
@@ -36,9 +54,22 @@
       <view class="retry-btn-inline" bindtap="onRetryLoad"><text>重试</text></view>
     </view>
 
+    <!-- 标题/状态/折叠固定在面板顶，不被地图工具遮挡 -->
     <view class="panel-header panel-header--with-action" wx:if="{{site}}">
       <view class="panel-header-text">
-        <text class="panel-title">{{site.nameZh || site.name}}</text>
+        <view class="panel-title-row">
+          <text class="panel-title">{{site.nameZh || site.name}}</text>
+          <view
+            class="fav-btn fav-btn--panel {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+            hover-class="fav-btn--pressed"
+            hover-stay-time="120"
+            catchtap="onToggleFavorite"
+            aria-role="button"
+            aria-label="收藏"
+          >
+            <view class="fav-heart"></view>
+          </view>
+        </view>
         <text class="panel-subtitle" wx:if="{{site.nameZh}}">{{site.fullName || site.name}}</text>
       </view>
       <view class="panel-header-actions">
@@ -47,7 +78,14 @@
       </view>
     </view>
 
-    <block wx:if="{{!panelCollapsed && site}}">
+    <scroll-view
+      class="panel-body-scroll"
+      scroll-y
+      enhanced
+      show-scrollbar="{{false}}"
+      style="height: {{panelScrollHeight}}px;"
+      wx:if="{{!panelCollapsed && site}}"
+    >
       <view class="data-meta-row">
         <text class="data-meta-text">来源：{{dataSourceText}}</text>
         <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
@@ -101,7 +139,7 @@
         <image class="site-thumb-img" src="{{site.imageUrl}}" mode="aspectFill" lazy-load />
         <text class="site-thumb-hint">LL2 卫星定位图 · 点按查看大图</text>
       </view>
-    </block>
+    </scroll-view>
 
     <view class="mini-summary-row" wx:if="{{panelCollapsed && site}}">
       <text class="mini-summary-text">{{site.nameZh || site.name}} · {{site.countryLabel || '未知地区'}} · 累计发射 {{site.totalLaunchCount}} 次</text>
@@ -110,4 +148,5 @@
 
   <!-- 分享免门控 24h 剩余时间倒计时胶囊 -->
   <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+  <share-guide />
 </view>

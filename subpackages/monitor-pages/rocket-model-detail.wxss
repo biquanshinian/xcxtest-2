@@ -1,21 +1,24 @@
 /* rocket-model-detail.wxss — 火箭型号详情页（暗色毛玻璃，与监控中心一致） */
+@import "./styles/fav-btn.wxss";
+@import "./hero-3d-btn.wxss";
+
 page {
-  background: #000;
-  color: #fff;
+  background: var(--color-bg-page);
 }
 .container {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
+  color: var(--color-text-primary);
 }
 .detail-scroll {
   width: 100%;
   height: 100vh;
 }
 .glass-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20rpx);
-  -webkit-backdrop-filter: blur(20rpx);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  backdrop-filter: var(--blur-card);
+  -webkit-backdrop-filter: var(--blur-card);
 }
 
 /* 加载/错误 */
@@ -41,10 +44,16 @@ page {
 }
 .error-btn {
   font-size: 28rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   padding: 12rpx 40rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 999rpx;
+}
+.score-loading-hint {
+  display: block;
+  margin: 8rpx 8rpx 0;
+  font-size: 24rpx;
+  color: #8E8E93;
 }
 
 /* Hero */
@@ -72,7 +81,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02) 72%);
 }
 .hero-placeholder-icon {
   font-size: 96rpx;
@@ -91,8 +100,8 @@ page {
   right: 16rpx;
   padding: 6rpx 18rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.2), rgba(88, 86, 214, 0.2));
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.2));
+  border: 1px solid rgba(59, 130, 246, 0.3);
   backdrop-filter: blur(10rpx);
   -webkit-backdrop-filter: blur(10rpx);
   display: flex;
@@ -101,19 +110,19 @@ page {
 }
 .hero-credit-text {
   font-size: 20rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   font-weight: 500;
   line-height: 1;
 }
 
 /* 贴图讨论区容器 */
 .model-discuss-wrap {
-  padding: 0 30rpx;
+  padding: 0 var(--space-lg);
 }
 
 /* 信息头 */
 .info-header {
-  padding: 24rpx 30rpx 0;
+  padding: var(--space-md) var(--space-lg) 0;
 }
 .info-name-row {
   display: flex;
@@ -121,13 +130,20 @@ page {
   gap: 14rpx;
 }
 .info-name {
+  flex: 1;
+  min-width: 0;
   font-size: 46rpx;
   font-weight: 800;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 .info-flag {
+  flex-shrink: 0;
   font-size: 40rpx;
   line-height: 1;
+}
+.info-name-row .fav-btn {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .info-alias {
   display: block;
@@ -148,14 +164,14 @@ page {
   font-weight: 500;
 }
 .info-tag--mfr {
-  color: #5AC8FA;
-  background: rgba(90, 200, 250, 0.15);
-  border: 1px solid rgba(90, 200, 250, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 /* 发射商跳转按钮：胶囊蓝色渐变，全局统一（同首页倒计时 info-jump-btn） */
 .info-tag--link {
   color: #ffffff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
+  background: linear-gradient(135deg, var(--color-brand), #60A5FA);
   border: none;
   border-radius: 999rpx;
   padding: 5rpx 17rpx 5rpx 19rpx;
@@ -188,7 +204,7 @@ page {
 
 /* 描述 */
 .desc-section {
-  padding: 20rpx 30rpx 0;
+  padding: var(--space-sm) var(--space-lg) 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -203,11 +219,11 @@ page {
 .desc-title {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 .desc-text {
   font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-text-secondary);
   line-height: 1.6;
 }
 
@@ -218,7 +234,7 @@ page {
 .section-label {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   display: block;
   margin-bottom: 16rpx;
 }
@@ -252,7 +268,7 @@ page {
 }
 .recovery-desc {
   font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-secondary);
   line-height: 1.5;
 }
 
@@ -271,17 +287,17 @@ page {
   display: flex;
   flex-direction: column;
   padding: 14rpx 18rpx;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-divider-faint);
   border-radius: 10rpx;
 }
 .spec-label {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-tertiary);
 }
 .spec-value {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   margin-top: 4rpx;
   font-variant-numeric: tabular-nums;
 }
@@ -302,22 +318,22 @@ page {
   flex-direction: column;
   align-items: center;
   padding: 16rpx 8rpx;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-divider-faint);
   border-radius: 10rpx;
 }
 .record-value {
   font-size: 34rpx;
   font-weight: 800;
-  color: #fff;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 .record-value--turnaround {
   font-size: 24rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
 }
 .record-label {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-text-tertiary);
   margin-top: 6rpx;
   text-align: center;
 }
@@ -330,7 +346,7 @@ page {
   margin-bottom: 16rpx;
 }
 .fleet-count {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-text-tertiary);
   font-weight: 500;
 }
 .fleet-list {
@@ -351,7 +367,7 @@ page {
   height: 120rpx;
   border-radius: 12rpx;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-divider-faint);
 }
 .fleet-img {
   width: 100%;
@@ -364,7 +380,7 @@ page {
 }
 .fleet-img--placeholder {
   opacity: 1;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02) 72%);
 }
 .fleet-body {
   flex: 1;
@@ -381,14 +397,14 @@ page {
 .fleet-serial {
   font-size: 28rpx;
   font-weight: 700;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 .fleet-status {
   font-size: 18rpx;
   font-weight: 600;
   padding: 2rpx 12rpx;
   border-radius: 6rpx;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-divider);
 }
 .fleet-status--active { color: #34C759; }
 .fleet-status--retired { color: #8E8E93; }
@@ -401,7 +417,7 @@ page {
 }
 .fleet-stat {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-secondary);
 }
 .fleet-flights-bar {
   display: flex;
@@ -423,12 +439,12 @@ page {
   background: rgba(255, 149, 0, 0.55);
 }
 .flight-unknown {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--color-divider);
 }
 .fleet-arrow {
   flex-shrink: 0;
   font-size: 40rpx;
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--color-text-quaternary);
 }
 .fleet-empty {
   display: flex;
@@ -445,17 +461,18 @@ page {
 }
 .fleet-empty-hint {
   font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-tertiary);
 }
 
-/* ========== 明亮主题（theme-light）覆盖 ========== */
+/* ========== 明亮主题（theme-light）覆盖 ==========
+ * 正文色已走 token，随 .theme-light 自动反色。
+ * 这里只补：实心底卡、照片浮层保持深色、白色中性 SVG 反色。
+ */
 .container.theme-light {
   background: var(--color-bg-page);
 }
 .theme-light .glass-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .loading-text {
   color: var(--color-text-tertiary);
@@ -463,82 +480,93 @@ page {
 .theme-light .error-text {
   color: var(--color-text-secondary);
 }
-/* Hero 无图占位：深色径向渐变 → 浅灰 */
 .theme-light .hero-placeholder {
-  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
-}
-/* hero-gradient / hero-credit-btn 压在火箭照片上，保持深色浮层 */
-.theme-light .info-name {
-  color: var(--color-text-primary);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(0, 0, 0, 0.03) 72%);
 }
 .theme-light .info-alias {
   color: #C77700;
-}
-.theme-light .desc-title {
-  color: var(--color-text-primary);
-}
-.theme-light .desc-text {
-  color: var(--color-text-secondary);
-}
-.theme-light .section-label {
-  color: var(--color-text-primary);
-}
-.theme-light .recovery-desc {
-  color: var(--color-text-secondary);
 }
 /* 回收方式图标恒为白色中性 SVG（buildLandingIcon neutral），浅色主题反色压深 */
 .theme-light .recovery-icon {
   filter: invert(0.72);
 }
-.theme-light .spec-item {
-  background: rgba(0, 0, 0, 0.04);
-}
-.theme-light .spec-label {
-  color: var(--color-text-tertiary);
-}
-.theme-light .spec-value {
-  color: var(--color-text-primary);
-}
-.theme-light .record-item {
-  background: rgba(0, 0, 0, 0.04);
-}
-.theme-light .record-value {
-  color: var(--color-text-primary);
-}
-.theme-light .record-value--turnaround {
-  color: #0A84FF;
-}
-.theme-light .record-label {
-  color: var(--color-text-tertiary);
-}
-.theme-light .fleet-count {
-  color: var(--color-text-tertiary);
-}
-.theme-light .fleet-img-wrap {
-  background: rgba(0, 0, 0, 0.03);
-}
 .theme-light .fleet-img--placeholder {
-  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
-}
-.theme-light .fleet-serial {
-  color: var(--color-text-primary);
-}
-.theme-light .fleet-status {
-  background: rgba(0, 0, 0, 0.05);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(0, 0, 0, 0.03) 72%);
 }
 .theme-light .fleet-status--retired,
 .theme-light .fleet-status--unknown {
   color: var(--color-text-tertiary);
 }
-.theme-light .fleet-stat {
-  color: var(--color-text-secondary);
+
+/* 底部 PK + 档案指数：与任务详情同坞 */
+.mission-fab-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  pointer-events: auto;
 }
-.theme-light .flight-unknown {
-  background: rgba(0, 0, 0, 0.12);
+
+.mission-pk-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72rpx;
+  padding: 0 40rpx;
+  border-radius: 999rpx;
+  background: var(--bg-glass, rgba(22, 24, 28, 0.72));
+  backdrop-filter: blur(32rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(160%);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: var(--shadow-tabbar, 0 4rpx 20rpx rgba(0, 0, 0, 0.2));
 }
-.theme-light .fleet-arrow {
-  color: rgba(0, 0, 0, 0.2);
+
+.mission-pk-fab--pressed {
+  opacity: 0.86;
+  transform: scale(0.98);
 }
-.theme-light .fleet-empty-hint {
-  color: var(--color-text-tertiary);
+
+.mission-pk-fab-mark {
+  width: 72rpx;
+  height: 34rpx;
+  display: block;
+}
+
+.mission-score-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 999rpx;
+  background: var(--bg-glass, rgba(22, 24, 28, 0.72));
+  backdrop-filter: blur(32rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(160%);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: var(--shadow-tabbar, 0 4rpx 20rpx rgba(0, 0, 0, 0.2));
+}
+
+.mission-score-fab--pressed {
+  opacity: 0.86;
+  transform: scale(0.98);
+}
+
+.mission-score-fab-mark {
+  width: 40rpx;
+  height: 40rpx;
+  display: block;
+}
+
+.theme-light .mission-pk-fab,
+.theme-light .mission-score-fab {
+  background: var(--bg-glass, rgba(255, 255, 255, 0.78));
+  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .mission-pk-fab-mark,
+.theme-light .mission-score-fab-mark {
+  filter: invert(1);
 }

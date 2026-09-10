@@ -10,6 +10,8 @@ Page({
     loadError: false,
     errorMessage: '',
     loadTimeout: false,
+    /** 加载超过 8s 时在 loading 层显示"较慢"提示 */
+    slowTip: false,
     pageTitle: '星舰监控中心',
     showDomainTip: false,
     showEmbedTip: false,
@@ -44,31 +46,15 @@ Page({
         return
       }
 
-      // 验证是否为配置的业务域名
-      const domain = this.extractDomain(url)
-      const configuredDomain = this.extractDomain(config.userWebPreviewUrl || '')
-      
-      if (configuredDomain && domain !== configuredDomain && !domain.endsWith('.' + configuredDomain)) {
-      }
-
       this.setData({
         url: url,
         baseUrl: url,
         loading: true,
         loadError: false,
-        loadTimeout: false
+        loadTimeout: false,
+        slowTip: false
       })
-      
-      // 设置超时检测（30秒，根据微信文档建议）
-      this.loadTimer = setTimeout(() => {
-        if (this.data.loading) {
-          this.setData({
-            loading: false,
-            loadTimeout: true,
-            errorMessage: '网页加载超时，请检查网络连接或稍后重试'
-          })
-        }
-      }, 30000)
+      this._armLoadTimers()
     } else {
       // 如果没有传入URL，优先使用云中转页面，否则使用直接URL
       const cloudUrl = config.monitorCloudPreviewUrl || ''
@@ -81,18 +67,10 @@ Page({
           baseUrl: defaultUrl,
           loading: true,
           loadError: false,
-          loadTimeout: false
+          loadTimeout: false,
+          slowTip: false
         })
-        
-        this.loadTimer = setTimeout(() => {
-          if (this.data.loading) {
-            this.setData({
-              loading: false,
-              loadTimeout: true,
-              errorMessage: '网页加载超时，请检查网络连接或稍后重试'
-            })
-          }
-        }, 30000)
+        this._armLoadTimers()
       } else {
         this.setData({
           loading: false,
@@ -104,35 +82,50 @@ Page({
   },
 
   /**
-   * 提取URL的域名
+   * 加载计时：8s 仍未完成先提示"加载较慢"；15s 超时切到错误遮罩（带重试/返回）。
+   * 修复历史 bug：旧逻辑超时只把 loading 置 false 而不置 loadError，
+   * 所有遮罩同时消失，用户面对纯白 web-view（离开白屏率的来源）。
    */
-  extractDomain(url) {
-    try {
-      const urlObj = new URL(url)
-      return urlObj.hostname
-    } catch (e) {
-      return ''
+  _armLoadTimers() {
+    this._clearLoadTimers()
+    this.slowTipTimer = setTimeout(() => {
+      if (this.data.loading) this.setData({ slowTip: true })
+    }, 8000)
+    this.loadTimer = setTimeout(() => {
+      if (this.data.loading) {
+        this.setData({
+          loading: false,
+          loadError: true,
+          loadTimeout: true,
+          errorMessage: '网页加载超时，请检查网络连接或稍后重试'
+        })
+      }
+    }, 15000)
+  },
+
+  _clearLoadTimers() {
+    if (this.loadTimer) {
+      clearTimeout(this.loadTimer)
+      this.loadTimer = null
+    }
+    if (this.slowTipTimer) {
+      clearTimeout(this.slowTipTimer)
+      this.slowTipTimer = null
     }
   },
 
   onUnload() {
-    // 清理定时器
-    if (this.loadTimer) {
-      clearTimeout(this.loadTimer)
-      this.loadTimer = null
-    }
+    this._clearLoadTimers()
   },
 
   // web-view 加载完成
   onWebViewLoad(e) {
-    if (this.loadTimer) {
-      clearTimeout(this.loadTimer)
-      this.loadTimer = null
-    }
+    this._clearLoadTimers()
     this.setData({
       loading: false,
       loadError: false,
-      loadTimeout: false
+      loadTimeout: false,
+      slowTip: false
     })
     
     // 加载完成后可以尝试获取页面标题（如果网页支持）
@@ -141,10 +134,7 @@ Page({
 
   // web-view 加载错误
   onWebViewError(e) {
-    if (this.loadTimer) {
-      clearTimeout(this.loadTimer)
-      this.loadTimer = null
-    }
+    this._clearLoadTimers()
     
     let errorMsg = '网页加载失败'
     let showDomainTip = false
@@ -190,13 +180,9 @@ Page({
     this.setData({
       loading: true,
       loadError: false,
-      loadTimeout: false
+      loadTimeout: false,
+      slowTip: false
     })
-    
-    // 清理旧定时器
-    if (this.loadTimer) {
-      clearTimeout(this.loadTimer)
-    }
     
     // 重新设置URL（添加时间戳避免缓存）
     const sep = u.indexOf('?') >= 0 ? '&' : '?'
@@ -204,16 +190,7 @@ Page({
       url: u + sep + '_=' + Date.now() 
     })
     
-    // 重新设置超时检测
-    this.loadTimer = setTimeout(() => {
-      if (this.data.loading) {
-        this.setData({
-          loading: false,
-          loadTimeout: true,
-          errorMessage: '网页加载超时，请检查网络连接或稍后重试'
-        })
-      }
-    }, 30000)
+    this._armLoadTimers()
   },
 
   goBack() {

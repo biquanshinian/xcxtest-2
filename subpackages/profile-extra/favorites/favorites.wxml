@@ -1,0 +1,55 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">我的收藏</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}" style="padding-top:{{navPlaceholderHeight}}px;">
+    <view class="fav-summary" wx:if="{{total > 0}}">
+      <text class="fav-summary-text">共收藏 {{total}} 项</text>
+    </view>
+
+    <view class="empty" wx:if="{{!total}}">
+      <text class="empty-title">还没有收藏</text>
+      <text class="empty-hint">在详情页点爱心即可收藏；已收藏的可在此长按取消</text>
+    </view>
+
+    <block wx:for="{{groups}}" wx:key="key" wx:for-item="group">
+      <view class="fav-section">
+        <view class="fav-section-head">
+          <text class="fav-section-title">{{group.label}}</text>
+          <text class="fav-section-count">{{group.count}}</text>
+        </view>
+        <view class="fav-grid">
+          <view
+            class="fav-card glass-card"
+            wx:for="{{group.items}}"
+            wx:for-item="item"
+            wx:key="_key"
+            bindtap="onItemTap"
+            bindlongpress="onItemLongPress"
+            data-type="{{item.type}}"
+            data-id="{{item.id}}"
+            data-route="{{item.route}}"
+            data-title="{{item.title}}"
+          >
+            <view class="fav-card-media {{item.imageUrl ? '' : 'fav-card-media--empty'}}">
+              <image wx:if="{{item.imageUrl}}" class="fav-card-img" src="{{item.imageUrl}}" mode="aspectFill" lazy-load />
+              <text wx:else class="fav-card-fallback">{{item.fallbackChar}}</text>
+            </view>
+            <text class="fav-card-title">{{item.title || '未命名'}}</text>
+            <text class="fav-card-sub" wx:if="{{item.subtitle}}">{{item.subtitle}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+</view>

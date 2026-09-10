@@ -10,9 +10,11 @@
  *   - syncQuiz          同步问答结果
  *   - syncAll           客户端本地数据整体上传（首次云同步 / 恢复场景）
  *   - savePreferences   保存用户偏好（提醒/简报）
- *   - getPreferences    读取用户偏好
+ *   - getPreferences    读取用户偏好（小程序现走本地 prefs，云端保留）
+ *   - saveIdentity      保存展示昵称 / 头像 fileID
  *   - recordMilestone   记录时间线里程碑
- *   - getTodayBriefing  获取今日简报
+ *   - getTodayBriefing  获取今日简报（优先 daily_briefing，回落 space_devs_cache）
+ *   - getRecentCompleted 运维/兼容只读，小程序主路径不调
  *   - getNewsManualForApp         公共只读：航天事件手写稿列表（服务端读 news_articles）
  *   - getNewsManualArticleById    公共只读：手写稿详情，参数 docId / id
  *   - getMediaAssetsMap             公共只读：media_assets 整表映射（单次下发，最多 500 条）
@@ -34,6 +36,21 @@ function todayStr() {
   const offset = 8 * 60 * 60 * 1000
   const cn = new Date(d.getTime() + offset)
   return cn.toISOString().slice(0, 10)
+}
+
+function normalizeVerifyBadge(raw) {
+  const v = String(raw || '').trim().toLowerCase()
+  if (v === 'gray' || v === 'government') return 'grey'
+  if (v === 'business' || v === 'organization' || v === 'org') return 'gold'
+  if (v === 'premium' || v === 'verified') return 'blue'
+  if (v === 'blue' || v === 'gold' || v === 'grey' || v === 'none') return v
+  return 'none'
+}
+
+function verifyBadgeSrc(type) {
+  const t = normalizeVerifyBadge(type)
+  if (t === 'none') return ''
+  return '/images/x-verify/' + t + '.svg'
 }
 
 function yesterdayStr() {
@@ -182,11 +199,29 @@ async function handleCheckin(openid, factId) {
 
 // ── 同步问答 ──
 async function handleSyncQuiz(openid, quizData) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const incoming = quizData && typeof quizData === 'object' ? quizData : {}
+  const cloudQuiz = profile.quiz || {}
+  let maxDailyDelta = Infinity
+  if (cloudQuiz.lastQuizDate) {
+    const today = todayStr()
+    const from = Date.parse(String(cloudQuiz.lastQuizDate) + 'T00:00:00+08:00')
+    const to = Date.parse(today + 'T00:00:00+08:00')
+    const elapsedDays = (!isNaN(from) && !isNaN(to))
+      ? Math.max(0, Math.round((to - from) / 86400000))
+      : 1
+    maxDailyDelta = Math.max(1, elapsedDays)
+  } else if (profile.lastSyncAt) {
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
+    maxDailyDelta = elapsedDays + 1
+  } else {
+    maxDailyDelta = 1
+  }
+  const mergedQuiz = mergeQuiz(cloudQuiz, incoming, maxDailyDelta)
   await db.collection(COLLECTION).doc(openid).update({
-    data: { quiz: quizData }
+    data: { quiz: mergedQuiz }
   })
-  return { success: true }
+  return { success: true, quiz: mergedQuiz }
 }
 
 // ── 全量同步（本地 → 云端） ──
@@ -199,6 +234,10 @@ async function handleSyncAll(openid, localData) {
   if (profile.lastSyncAt) {
     const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
     maxDailyDelta = elapsedDays + 1
+  } else if (profile.createdAt) {
+    // 首次同步也按档案创建距今的天数封顶，避免新号一次性上报虚高签到/答题去领 PRO
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - Number(profile.createdAt)) / 86400000)
+    maxDailyDelta = Math.max(1, elapsedDays + 1)
   }
 
   const mergedCheckin = mergeCheckin(profile.checkin, localData.checkin, maxDailyDelta)
@@ -229,6 +268,25 @@ async function handleSyncAll(openid, localData) {
     const cloudPrefs = profile.preferences || {}
     if ((localData.preferences.updatedAt || 0) >= (cloudPrefs.updatedAt || 0)) {
       updateData.preferences = localData.preferences
+    }
+  }
+
+  // 合并身份展示（取较新的；空本地不得覆盖已有云端头像/昵称，防止删小程序重装后把云端洗掉）
+  if (localData.identity && localData.identity.updatedAt) {
+    const cloudId = profile.identity || {}
+    const localName = String(localData.identity.displayName || '').trim()
+    const localAvatar = String(localData.identity.avatarFileID || '').trim()
+    const cloudName = String(cloudId.displayName || '').trim()
+    const cloudAvatar = String(cloudId.avatarFileID || '').trim()
+    const localEmpty = !localAvatar && (!localName || localName === '太空探索者')
+    const cloudHasData = !!(cloudAvatar || (cloudName && cloudName !== '太空探索者'))
+    if (!(localEmpty && cloudHasData) &&
+        (localData.identity.updatedAt || 0) >= (cloudId.updatedAt || 0)) {
+      updateData.identity = {
+        displayName: localName.slice(0, 16),
+        avatarFileID: localAvatar.slice(0, 512),
+        updatedAt: Number(localData.identity.updatedAt) || Date.now()
+      }
     }
   }
 
@@ -303,12 +361,47 @@ function mergeBehaviorStats(cloud, local) {
 }
 
 // ── 保存偏好 ──
+// 合并写入：避免语言/简报等局部保存冲掉 mpResultCredits；
+// 结果额度只允许客户端通过 mpResultCreditsDelta 上调，扣减由 sendLaunchReminder 权威回写。
 async function handleSavePreferences(openid, preferences) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const prev = (profile && profile.preferences) || {}
+  const incoming = preferences && typeof preferences === 'object' ? { ...preferences } : {}
+  const delta = Math.max(0, Number(incoming.mpResultCreditsDelta) || 0)
+  delete incoming.mpResultCredits
+  delete incoming.mpResultCreditsDelta
+  const next = { ...prev, ...incoming, updatedAt: Date.now() }
+  if (incoming.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = Number(incoming.mpReminderGrantedAt) || Date.now()
+  } else if (prev.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = prev.mpReminderGrantedAt
+  }
+  const prevCredits = Math.max(0, Number(prev.mpResultCredits) || 0)
+  next.mpResultCredits = delta > 0
+    ? Math.min(5, prevCredits + delta)
+    : prevCredits
   await db.collection(COLLECTION).doc(openid).update({
-    data: { preferences: { ...preferences, updatedAt: Date.now() } }
+    data: { preferences: next }
   })
-  return { success: true }
+  return { success: true, preferences: next }
+}
+
+// ── 保存身份展示（昵称 / 头像）──
+async function handleSaveIdentity(openid, identity) {
+  await getOrCreateProfile(openid)
+  const src = identity && typeof identity === 'object' ? identity : {}
+  const displayName = String(src.displayName || '').trim().slice(0, 16)
+  const avatarFileID = String(src.avatarFileID || '').trim().slice(0, 512)
+  const updatedAt = Number(src.updatedAt) || Date.now()
+  const next = {
+    displayName,
+    avatarFileID,
+    updatedAt
+  }
+  await db.collection(COLLECTION).doc(openid).update({
+    data: { identity: next }
+  })
+  return { success: true, identity: next, openid }
 }
 
 // ── 读取偏好 ──
@@ -329,6 +422,24 @@ async function handleRecordMilestone(openid, milestone) {
 // ── 获取今日简报 ──
 async function handleGetTodayBriefing(date) {
   const today = date || new Date(new Date().getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+  try {
+    const stored = await db.collection(BRIEFING_COLLECTION).doc(today).get()
+    const doc = stored && stored.data
+    if (doc && ((doc.todayLaunches && doc.todayLaunches.length) || (doc.yesterdayResults && doc.yesterdayResults.length))) {
+      return {
+        success: true,
+        source: 'daily_briefing',
+        briefing: {
+          _id: today,
+          date: today,
+          todayLaunches: doc.todayLaunches || [],
+          yesterdayResults: doc.yesterdayResults || [],
+          spaceFact: doc.spaceFact || null,
+          astroEvent: doc.astroEvent || null
+        }
+      }
+    }
+  } catch (eStored) {}
   const yest = (function () {
     const d = new Date(today + 'T12:00:00+08:00')
     d.setDate(d.getDate() - 1)
@@ -842,20 +953,29 @@ async function handleGetTodayTweetStats() {
       countMap[src]++
     })
 
-    // 组装结果
+    // 组装结果：优先 COS 头像；空则留给前端按约定路径兜底
+    var badgeBySource = {}
     var result = accounts.map(function (acc) {
+      var avatar = acc.avatarCosUrl || acc.avatarUrl || ''
+      var verifyBadge = normalizeVerifyBadge(acc.verifyBadge)
+      if (verifyBadge !== 'none' && acc.screenName) {
+        badgeBySource[acc.screenName] = verifyBadge
+        badgeBySource[String(acc.screenName).toLowerCase()] = verifyBadge
+      }
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
-        todayCount: countMap[acc.screenName] || 0
+        avatarUrl: avatar,
+        todayCount: countMap[acc.screenName] || 0,
+        verifyBadge: verifyBadge,
+        verifyBadgeSrc: verifyBadgeSrc(verifyBadge)
       }
     }).filter(function (item) {
       return item.todayCount > 0
     })
 
     console.log('[TweetStats] today:', today, 'total:', tweets.length, 'accounts:', result.length)
-    return { success: true, tweetStats: result, total: tweets.length }
+    return { success: true, tweetStats: result, total: tweets.length, badgeBySource: badgeBySource }
   } catch (e) {
     console.error('[TweetStats] error:', e.message)
     return { success: false, tweetStats: [], total: 0 }
@@ -870,11 +990,14 @@ async function handleGetTweetAccounts() {
   try {
     const res = await db.collection('tweet_accounts').where({ enabled: true }).limit(50).get()
     const accounts = (res.data || []).map(function (acc) {
+      var verifyBadge = normalizeVerifyBadge(acc.verifyBadge)
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
-        cosFolder: acc.cosFolder || ''
+        avatarUrl: acc.avatarCosUrl || acc.avatarUrl || '',
+        cosFolder: acc.cosFolder || '',
+        verifyBadge: verifyBadge,
+        verifyBadgeSrc: verifyBadgeSrc(verifyBadge)
       }
     })
     return { success: true, accounts }
@@ -982,19 +1105,86 @@ function sortManualNewsRowsOnServer(rows, max) {
   return sorted.slice(0, max)
 }
 
+function parseRocket3dGlbKey(key) {
+  const m = /^models\/rockets\/([a-z0-9]+(?:-[a-z0-9]+)*)\.glb$/i.exec(String(key || '').split('?')[0])
+  return m ? m[1].toLowerCase() : ''
+}
+
+function parseIpRefGlbKey(key) {
+  const m = /^models\/reference\/([a-z0-9]+(?:-[a-z0-9]+)*)\.glb$/i.exec(String(key || '').split('?')[0])
+  if (!m) return ''
+  const slug = m[1].toLowerCase()
+  if (slug === 'ip-musk') return 'musk'
+  if (slug === 'ip-astro' || slug === 'astronaut') return 'astro'
+  if (slug === 'cybertruck' || slug === 'cyber-truck') return 'cyber-pickup'
+  if (slug === 'musk' || slug === 'astro' || slug === 'cyber-pickup') return slug
+  return ''
+}
+
+function defaultHighestPointMeters(slug) {
+  return slug === 'cyber-pickup' ? 1.794 : 1.88
+}
+
+function normalizeHighestPointMeters(raw, slug) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return defaultHighestPointMeters(slug)
+  return Math.round(Math.min(5, Math.max(0.3, n)) * 1000) / 1000
+}
+
+function normalizeLengthMeters(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 5.683
+  return Math.round(Math.min(15, Math.max(1, n)) * 1000) / 1000
+}
+
+function normalizeWidthMeters(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 2.032
+  return Math.round(Math.min(6, Math.max(0.5, n)) * 1000) / 1000
+}
+
+function ingestMediaAssetRow(item, map, credits, opts, ipScaleRefs) {
+  const key = item && item.key != null ? String(item.key).trim() : ''
+  const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
+  if (!key || !url) return false
+  const isNew = !Object.prototype.hasOwnProperty.call(map, key)
+  if (isNew || (opts && opts.overwrite)) map[key] = url
+  const slug = parseRocket3dGlbKey(key)
+  const credit = String((item && item.credit) || '').trim()
+  if (slug && credit) credits[slug] = credit
+  const ipSlug = parseIpRefGlbKey(key)
+  if (ipSlug && ipScaleRefs) {
+    const rec = {
+      url,
+      highestPoint: normalizeHighestPointMeters(item && item.highestPoint, ipSlug),
+      enabled: true
+    }
+    if (ipSlug === 'cyber-pickup') {
+      rec.lengthM = normalizeLengthMeters(item && item.lengthM)
+      rec.widthM = normalizeWidthMeters(item && item.widthM)
+    }
+    ipScaleRefs[ipSlug] = rec
+  }
+  return isNew
+}
+
 /** 小程序媒体映射：一次下发 enabled 的 key→url（避免客户端 N 次分页读 media_assets） */
 async function handleGetMediaAssetsMap() {
-  const MAX_ROWS = 500
+  const MAX_ROWS = 1500
   const PAGE = 100
   const map = {}
-  let skip = 0
-  let fetched = 0
+  const rocket3dCredits = {}
+  const ipScaleRefs = {}
+  let mapSize = 0
 
-  while (fetched < MAX_ROWS) {
-    const limit = Math.min(PAGE, MAX_ROWS - fetched)
+  // 主扫描：与旧版一致的单趟分页；集合未超容量时这是唯一的读开销
+  let skip = 0
+  let truncated = false
+  while (mapSize < MAX_ROWS) {
+    const limit = Math.min(PAGE, MAX_ROWS - mapSize)
     const res = await db.collection('media_assets')
       .where({ enabled: true })
-      .field({ key: true, url: true })
+      .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(limit)
@@ -1002,19 +1192,88 @@ async function handleGetMediaAssetsMap() {
 
     const rows = res.data || []
     rows.forEach((item) => {
-      const key = item && item.key != null ? String(item.key).trim() : ''
-      const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
-      if (key && url) map[key] = url
+      if (ingestMediaAssetRow(item, map, rocket3dCredits, null, ipScaleRefs)) mapSize += 1
     })
 
-    fetched += rows.length
     skip += rows.length
     if (rows.length < limit) break
+    if (skip > 8000) { truncated = true; break }
+  }
+  // 读满整页且容量已用尽 → 集合里可能还有剩余文档被截断
+  if (mapSize >= MAX_ROWS) truncated = true
+
+  // 仅在截断时补拉火箭配置图（原图 + 机娘），保证不被其它素材挤掉导致机娘 fuzzy miss；
+  // 未截断时零额外读，避免每次调用都白付一趟 regexp 查询 + 重复文档读
+  if (truncated) {
+    let rSkip = 0
+    let added = 0
+    while (added < 800) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^火箭配置图(/|-机娘/)', options: '' })
+        })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
+        .orderBy('_id', 'asc')
+        .skip(rSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        if (ingestMediaAssetRow(item, map, rocket3dCredits, null, ipScaleRefs)) added += 1
+      })
+      rSkip += rows.length
+      if (rows.length < PAGE) break
+      if (rSkip > 2000) break
+    }
+
+    // 3D 模型很少且 _id 靠后，截断时单独补进 map
+    let mSkip = 0
+    while (mSkip < 400) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^models/rockets/', options: 'i' })
+        })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
+        .orderBy('_id', 'asc')
+        .skip(mSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true }, ipScaleRefs)
+      })
+      mSkip += rows.length
+      if (rows.length < PAGE) break
+    }
+
+    let iSkip = 0
+    while (iSkip < 80) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^models/reference/', options: 'i' })
+        })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
+        .orderBy('_id', 'asc')
+        .skip(iSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true }, ipScaleRefs)
+      })
+      iSkip += rows.length
+      if (rows.length < PAGE) break
+    }
   }
 
   return {
     success: true,
     map,
+    rocket3dCredits,
+    ipScaleRefs,
     count: Object.keys(map).length,
     version: Date.now()
   }
@@ -1109,7 +1368,12 @@ exports.main = async (event) => {
     }
 
     case 'getPreferences': {
+      // 运维只读：小程序偏好走本地 prefs，不调此 action
       return handleGetPreferences(OPENID)
+    }
+
+    case 'saveIdentity': {
+      return handleSaveIdentity(OPENID, event.identity || {})
     }
 
     case 'recordMilestone': {
@@ -1129,6 +1393,7 @@ exports.main = async (event) => {
     }
 
     case 'getRecentCompleted': {
+      // 运维/兼容只读，小程序主路径不调
       return handleGetRecentCompleted(event.limit || 5)
     }
 

@@ -1,0 +1,618 @@
+/**
+ * 分包本地副本（源：utils/text-translate.js，主包已不引用，迁入使用方分包）。
+ * 若修改逻辑，请同步更新各分包内同名副本。
+ */
+/**
+ * utils/text-translate.js — 页面级按需翻译（"翻译/原文"按钮共用，全项目唯一正本）
+ * 翻译来源优先级：
+ * 1. 字段自带预翻译 zh（云端富化，本地秒切）
+ * 2. ll2Query 词典 + translation_cache（skipTmt，免费秒回）
+ * 3. 混元大模型 hy3-preview（机翻默认主通道；超长按句段切开后逐段翻译再合并）
+ * 4. 腾讯云 TMT（仅作 AI/缓存未命中项的兜底）
+ * 失败项保留原文展示。
+ */
+
+/** 整句可用中文才跳过送翻。中英混排、雀雀/麻雀误译必须走混元。URL 不计入英文占比。 */
+function isMostlyChinese(text) {
+  const raw = String(text || '').replace(/https?:\/\/\S+/g, ' ').trim()
+  if (!raw) return true
+  if (/雀雀|麻雀|孔雀/.test(raw)) return false
+  if (!/[\u4e00-\u9fff]/.test(raw)) return false
+  const rest = raw
+    .replace(/\b(SpaceX|NASA|ESA|JAXA|Roscosmos|ULA|ISS|NROL|NRO|LEO|GTO|GEO|MEO|SSO|HEO|ASDS|RTLS|SLS|CRS|Artemis|Orion|Starlink|Transporter|Bandwagon|iQPS|QZS|NET|TBD|TBC)\b/gi, ' ')
+    .replace(/\b(?:[A-Z]{1,4}-?\d+[A-Za-z]?|B\d{3,5})\b/g, ' ')
+    .replace(/\b[A-Za-z]{1,2}\b/g, ' ')
+  const leftoverWords = rest.match(/[A-Za-z]{3,}/g) || []
+  if (leftoverWords.length >= 2) return false
+  if (leftoverWords.length === 1 && leftoverWords[0].length >= 4) return false
+  const latinLeft = (rest.match(/[A-Za-z]/g) || []).length
+  return latinLeft < 8
+}
+
+/** 与云函数 ll2Query translateTexts 的单次上限对齐（TRANSLATE_MAX_ITEMS / TRANSLATE_MAX_TOTAL_CHARS） */
+const TRANSLATE_BATCH_MAX_ITEMS = 20
+const TRANSLATE_BATCH_MAX_CHARS = 12000
+/**
+ * 单条送翻上限：低于云端 TRANSLATE_MAX_ITEM_CHARS(4000) 与 TMT ~6000 总量限。
+ * 超长原文先按句段切开再合并，避免「截断后半丢失」或 TextTooLong 整条失败。
+ */
+const TRANSLATE_ITEM_MAX_CHARS = 3500
+
+/**
+ * 将超长文本按段落/句子边界切成 ≤ maxChars 的片段（保序）。
+ * @param {string} text
+ * @param {number} maxChars
+ * @returns {string[]}
+ */
+function splitLongText(text, maxChars) {
+  const s = String(text || '')
+  const limit = Math.max(200, maxChars | 0)
+  if (!s) return []
+  if (s.length <= limit) return [s]
+
+  const out = []
+  let start = 0
+  while (start < s.length) {
+    if (s.length - start <= limit) {
+      out.push(s.slice(start))
+      break
+    }
+    const window = s.slice(start, start + limit)
+    let br = -1
+    const seps = ['\n\n', '\n', '. ', '? ', '! ', '; ', ', ', ' ']
+    for (let si = 0; si < seps.length; si++) {
+      const sep = seps[si]
+      const i = window.lastIndexOf(sep)
+      if (i >= Math.floor(limit * 0.35)) {
+        br = start + i + sep.length
+        break
+      }
+    }
+    if (br <= start) br = start + limit
+    out.push(s.slice(start, br))
+    start = br
+  }
+  return out.filter((p) => p && p.length)
+}
+
+/** 把输入扩成「片段 + 归属下标」，便于分批翻译后再按原文条数合并 */
+function expandTextsToPieces(inputs, maxChars) {
+  const pieces = []
+  const owners = []
+  for (let i = 0; i < inputs.length; i++) {
+    const parts = splitLongText(inputs[i], maxChars)
+    if (!parts.length) {
+      pieces.push('')
+      owners.push(i)
+      continue
+    }
+    for (let j = 0; j < parts.length; j++) {
+      pieces.push(parts[j])
+      owners.push(i)
+    }
+  }
+  return { pieces, owners }
+}
+
+/** 片段译文按 owners 归并；任一段失败则该原文条整体视为失败（空串，页面保留原文） */
+function mergePieceTranslations(inputLen, owners, pieceTranslations) {
+  const buckets = new Array(inputLen)
+  for (let i = 0; i < inputLen; i++) buckets[i] = []
+  for (let j = 0; j < owners.length; j++) {
+    buckets[owners[j]].push(String(pieceTranslations[j] || ''))
+  }
+  return buckets.map((parts) => {
+    if (!parts.length) return ''
+    if (!parts.every(Boolean)) return ''
+    return parts.join('')
+  })
+}
+
+/** 单批调用云端翻译（条数/字符量须已在上限内） */
+function translateTextsChunk(texts) {
+  return new Promise((resolve, reject) => {
+    if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') {
+      reject(new Error('云函数能力不可用'))
+      return
+    }
+    wx.cloud.callFunction({
+      name: 'll2Query',
+      data: { action: 'translateTexts', texts },
+      timeout: 30000,
+      success: (res) => {
+        const r = res && res.result
+        if (r && r.success && Array.isArray(r.list)) {
+          if (r.tmtConfigured === false && !r.list.some((s) => s)) {
+            reject(new Error('云端翻译服务未配置密钥'))
+            return
+          }
+          resolve(r.list.map((s) => String(s || '')))
+        } else {
+          reject(new Error((r && r.error) || '翻译服务返回为空'))
+        }
+      },
+      fail: (err) => reject(new Error((err && err.errMsg) || '翻译服务调用失败'))
+    })
+  })
+}
+
+/**
+ * 批量翻译英文文本。超过云端单次上限时自动分批并行请求后按序合并，
+ * 避免长列表（如飞行时间线 40+ 条）只翻译前 20 条的截断问题；
+ * 单条超长则先按句段切开再合并，避免长描述整条失败或被云端静默截断。
+ * @param {string[]} texts
+ * @returns {Promise<string[]>} 与输入等长；失败/无需翻译的项为空串
+ */
+async function translateTexts(texts) {
+  const inputs = (Array.isArray(texts) ? texts : []).map((t) => String(t || ''))
+  if (!inputs.length) return []
+
+  const { pieces, owners } = expandTextsToPieces(inputs, TRANSLATE_ITEM_MAX_CHARS)
+
+  const chunks = []
+  let cur = []
+  let curChars = 0
+  for (const t of pieces) {
+    if (cur.length && (cur.length >= TRANSLATE_BATCH_MAX_ITEMS || curChars + t.length > TRANSLATE_BATCH_MAX_CHARS)) {
+      chunks.push(cur)
+      cur = []
+      curChars = 0
+    }
+    cur.push(t)
+    curChars += t.length
+  }
+  if (cur.length) chunks.push(cur)
+
+  let pieceList
+  if (chunks.length === 1) {
+    pieceList = await translateTextsChunk(chunks[0])
+  } else {
+    // 各批独立容错：单批失败以空串占位（客户端兜底显示原文），全部失败才整体报错
+    let firstError = null
+    const lists = await Promise.all(chunks.map((chunk) =>
+      translateTextsChunk(chunk).catch((err) => {
+        if (!firstError) firstError = err
+        return chunk.map(() => '')
+      })
+    ))
+    pieceList = [].concat(...lists)
+    if (firstError && !pieceList.some((s) => s)) throw firstError
+  }
+
+  return mergePieceTranslations(inputs.length, owners, pieceList)
+}
+
+// ── 混元大模型翻译（默认主通道；TMT 仅兜底） ──────────────────
+
+/**
+ * 单次混元输入建议上限：超长原文先按此切开再逐段翻译，避免超时 / max_tokens 截断。
+ * TMT 仍只在整段（或任一段）AI 失败时作为兜底。
+ */
+const AI_TRANSLATE_CHUNK_CHARS = 1200
+/** 多条/多段混元并发上限，避免打满配额 */
+const AI_TRANSLATE_CONCURRENCY = 3
+
+const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天航空领域的专业中英翻译，译文必须使用中国航天报道的通行专业词汇。
+1. 只输出译文本身，不要任何解释、注释、前缀或引号
+2. 固定译名：OCISLY→当然我依然爱你号；JRTI→只需阅读说明号；ASOG→缺乏庄严号
+3. 型号用通行中文：Falcon 9→猎鹰9号，Zhuque-3/ZQ-3→朱雀三号（禁止「麻雀」「雀雀」「孔雀」），Starship→星舰。SpaceX、NASA、ISS、NROL 可保留原文；USSF→美国太空军
+4. 术语：booster=助推器，first/second stage=一/二级，static fire=静态点火，splashdown=溅落，payload=有效载荷，landing zone=着陆区，drone ship=无人船
+5. 整句译成中文，不要只替换个别词而留下英文句子`
+
+/**
+ * 判定模型输出是否是「像样的译文」，用于挡掉英文复述 / 解释。
+ * 与云端 looksLikelyChinese 对齐：译文里从原文原样保留的专名（SpaceX、Falcon 9、
+ * NROL-123 等）不计入英文占比——否则专名密集的新闻标题会被误判成没翻译而整条丢弃。
+ */
+function looksLikeTranslation(src, out) {
+  const zh = String(out || '')
+  if (!zh.trim()) return false
+  const cjk = (zh.match(/[\u4e00-\u9fff]/g) || []).length
+  if (!cjk) return false
+
+  const srcWords = {}
+  const srcTokens = String(src || '').toLowerCase().match(/[a-z][a-z0-9'\u2019-]*/g) || []
+  for (const w of srcTokens) srcWords[w] = true
+
+  let latin = 0
+  const outTokens = zh.replace(/https?:\/\/\S+/g, ' ').match(/[A-Za-z][A-Za-z0-9'\u2019-]*/g) || []
+  for (const w of outTokens) {
+    if (!srcWords[w.toLowerCase()]) latin += w.length
+  }
+  return cjk / (cjk + latin) >= 0.25
+}
+
+/** 去掉模型偶发的"译文："前缀与整段包裹引号 */
+function cleanAITranslation(s) {
+  let out = String(s || '').trim()
+  out = out.replace(/^(译文|翻译|中文译文)[:：]\s*/, '')
+  const wrapped =
+    (out.startsWith('"') && out.endsWith('"')) ||
+    (out.startsWith('\u201c') && out.endsWith('\u201d')) ||
+    (out.startsWith('「') && out.endsWith('」'))
+  if (wrapped) out = out.slice(1, -1).trim()
+  return out
+}
+
+/**
+ * 混元翻译单个片段（已控制在 AI_TRANSLATE_CHUNK_CHARS 内）。
+ * 任何失败返回空串，由调用方降级 TMT。
+ * @returns {Promise<string>}
+ */
+/** 加载混元实现：优先 shared 绝对路径（分包页可用），再回退主包薄壳 */
+let _translateAiModPromise = null
+function loadTranslateAiService() {
+  if (_translateAiModPromise) return _translateAiModPromise
+  _translateAiModPromise = (async () => {
+    if (typeof require.async === 'function') {
+      try {
+        const m = await require.async('/subpackages/shared/utils/aiService.js')
+        if (m && typeof m.generateTextAdvanced === 'function') return m
+      } catch (e) {}
+    }
+    try {
+      const shell = require('../../../utils/aiService.js')
+      if (shell && typeof shell.loadAiService === 'function') {
+        const m = await shell.loadAiService()
+        if (m && typeof m.generateTextAdvanced === 'function') return m
+      }
+      if (shell && typeof shell.generateTextAdvanced === 'function') return shell
+    } catch (e) {}
+    return null
+  })().then((m) => {
+    if (!m) _translateAiModPromise = null
+    return m
+  }).catch(() => {
+    _translateAiModPromise = null
+    return null
+  })
+  return _translateAiModPromise
+}
+
+async function translateViaAIChunk(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
+  const aiService = await loadTranslateAiService()
+  if (!aiService || typeof aiService.generateTextAdvanced !== 'function') return ''
+  if (typeof aiService.isAIAvailable === 'function' && !aiService.isAIAvailable()) return ''
+  // 英文原文越长译文 token 越多：按字符量给足，封顶 2048（兼容 hunyuan-lite 等上限）
+  const maxTokens = Math.min(2048, Math.max(400, Math.ceil(src.length * 1.2)))
+  const timeout = Math.min(40000, 15000 + Math.ceil(src.length * 12))
+  try {
+    const out = await aiService.generateTextAdvanced(AI_TRANSLATE_SYSTEM_PROMPT, src, {
+      model: 'hy3-preview',
+      temperature: 0.2,
+      maxTokens,
+      timeout
+    })
+    const cleaned = cleanAITranslation(out)
+    // 译文必须是像样的中文，防止模型输出英文复述或解释
+    return cleaned && !isMostlyChinese(src) && looksLikeTranslation(src, cleaned) ? cleaned : ''
+  } catch (e) {
+    return ''
+  }
+}
+
+/**
+ * 混元翻译单条文本（默认主通道）。超长按句段切开后并发翻译再合并；
+ * 任一段失败则整条返回空串，由调用方降级 TMT。
+ * @returns {Promise<string>}
+ */
+async function translateViaAI(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
+  const parts = splitLongText(src, AI_TRANSLATE_CHUNK_CHARS)
+  if (!parts.length) return ''
+  if (parts.length === 1) return translateViaAIChunk(parts[0])
+
+  const zhParts = await mapPool(parts, AI_TRANSLATE_CONCURRENCY, async (part) => translateViaAIChunk(part))
+  // 长文会切成十几段，单段抖动概率不低：只补跑失败段，不因一段失败丢掉整条译文
+  const missing = []
+  for (let i = 0; i < zhParts.length; i++) {
+    if (!zhParts[i]) missing.push(i)
+  }
+  if (missing.length) {
+    const retried = await mapPool(missing, AI_TRANSLATE_CONCURRENCY, async (idx) => translateViaAIChunk(parts[idx]))
+    for (let i = 0; i < missing.length; i++) zhParts[missing[i]] = retried[i]
+  }
+  if (!zhParts.every(Boolean)) return ''
+  return zhParts.join('')
+}
+
+/** 有限并发执行 tasks（返回与 tasks 等长的结果数组） */
+async function mapPool(items, concurrency, mapper) {
+  const out = new Array(items.length)
+  let next = 0
+  const workers = []
+  const limit = Math.max(1, Math.min(concurrency, items.length))
+  for (let w = 0; w < limit; w++) {
+    workers.push((async function () {
+      while (next < items.length) {
+        const i = next++
+        out[i] = await mapper(items[i], i)
+      }
+    })())
+  }
+  await Promise.all(workers)
+  return out
+}
+
+/** 只查云端词典 + translation_cache（skipTmt），失败或未命中返回与输入等长的数组（可全空） */
+async function lookupCloudPretranslated(texts) {
+  const inputs = (Array.isArray(texts) ? texts : []).map((t) => String(t || ''))
+  if (!inputs.length) return []
+  if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') {
+    return inputs.map(() => '')
+  }
+
+  // 与 translateTexts / 云端 TRANSLATE_MAX_* 对齐，避免超长列表只查前 20 条
+  const chunks = []
+  let cur = []
+  let curChars = 0
+  for (const t of inputs) {
+    if (cur.length && (cur.length >= TRANSLATE_BATCH_MAX_ITEMS || curChars + t.length > TRANSLATE_BATCH_MAX_CHARS)) {
+      chunks.push(cur)
+      cur = []
+      curChars = 0
+    }
+    cur.push(t)
+    curChars += t.length
+  }
+  if (cur.length) chunks.push(cur)
+
+  function lookupChunk(chunk) {
+    return new Promise((resolve) => {
+      wx.cloud.callFunction({
+        name: 'll2Query',
+        data: { action: 'translateTexts', texts: chunk, skipTmt: true },
+        timeout: 10000,
+        success: (res) => {
+          const r = res && res.result
+          if (r && r.success && Array.isArray(r.list)) {
+            resolve(r.list.map((s) => String(s || '')))
+          } else {
+            resolve(chunk.map(() => ''))
+          }
+        },
+        fail: () => resolve(chunk.map(() => ''))
+      })
+    })
+  }
+
+  const lists = await Promise.all(chunks.map(lookupChunk))
+  return [].concat(...lists)
+}
+
+/**
+ * 智能翻译入口（机翻默认主通道 = 混元）：
+ * 词典/缓存 → 混元（含短句与超长分段）→ TMT 仅兜底未命中项。
+ * @param {string[]} texts
+ * @returns {Promise<string[]>} 与输入等长；失败项为空串
+ */
+async function translateTextsSmart(texts) {
+  const inputs = (Array.isArray(texts) ? texts : []).map((t) => String(t || ''))
+  if (!inputs.length) return []
+
+  const results = new Array(inputs.length).fill('')
+
+  // 1) 词典 + translation_cache（免费；与输入等长，未命中为空串）
+  const cached = await lookupCloudPretranslated(inputs)
+  for (let i = 0; i < inputs.length; i++) {
+    if (cached[i]) results[i] = cached[i]
+  }
+
+  // 2) 混元默认主通道：缓存未命中的条目全部走 AI（超长在 translateViaAI 内分段）
+  const aiJobs = []
+  for (let i = 0; i < inputs.length; i++) {
+    if (!results[i] && inputs[i].trim()) aiJobs.push(i)
+  }
+  if (aiJobs.length) {
+    await mapPool(aiJobs, AI_TRANSLATE_CONCURRENCY, async (idx) => {
+      const ai = await translateViaAI(inputs[idx])
+      if (ai) results[idx] = ai
+    })
+  }
+
+  // 3) 仍空的走 TMT 兜底；若前面已有命中，TMT 失败不抹掉已有译文
+  const needTmtIdx = []
+  const needTmtTexts = []
+  for (let i = 0; i < inputs.length; i++) {
+    if (!results[i] && inputs[i]) {
+      needTmtIdx.push(i)
+      needTmtTexts.push(inputs[i])
+    }
+  }
+  if (needTmtTexts.length) {
+    try {
+      const tmtList = await translateTexts(needTmtTexts)
+      for (let j = 0; j < needTmtIdx.length; j++) {
+        if (tmtList[j]) results[needTmtIdx[j]] = tmtList[j]
+      }
+    } catch (e) {
+      if (!results.some(Boolean)) throw e
+    }
+  }
+
+  return results
+}
+
+/**
+ * 页面"翻译/原文"切换的通用实现。
+ * 页面 data 需包含 boolean 开关字段（switchKey）与 loading 字段（loadingKey），
+ * fields 描述每个待翻译文本的 data 路径、原文与可选的预翻译中文。
+ *
+ * @param {Page} page 页面实例
+ * @param {Object} opts
+ *   - switchKey  e.g. 'descTranslated'
+ *   - loadingKey e.g. 'descTranslating'
+ *   - fields: [{ path: 'descI18n.missionDesc', text: '英文原文', zh: '可选预翻译中文', revert: '' }]
+ *     path 推荐用独立 override 字段（WXML 里 override || 原字段 兜底），revert 默认空串；
+ *     zh 有值时本地秒切不调云端，只有缺 zh 且判定为英文的字段才批量送翻
+ * @returns {Promise<void>}
+ */
+/** 云端原始错误多是英文错误码（如 service free amount ... used up），转成用户看得懂的短提示 */
+function friendlyTranslateError(msg) {
+  const s = String(msg || '').trim()
+  if (!s) return '翻译失败，请稍后再试'
+  if (/AmountUsedUp|free amount|额度|配额|quota/i.test(s)) return '翻译额度已用完，请稍后再试'
+  if (/未配置|密钥|SecretId|SecretKey/i.test(s)) return '翻译服务未配置，请联系管理员'
+  if (/超时|timeout/i.test(s)) return '翻译超时，请稍后再试'
+  return s.length > 36 ? s.slice(0, 36) + '…' : s
+}
+
+/** 翻译按钮点击触感：中度震动（不支持 type 的旧机型退化为默认短震） */
+function vibrateMedium() {
+  try {
+    wx.vibrateShort({ type: 'medium' })
+  } catch (e) {
+    try { wx.vibrateShort() } catch (e2) {}
+  }
+}
+
+/** 翻译门控产品 id：不在 PRODUCTS 单品表内 → 弹窗只提供开通星际通行证 / 看广告 */
+const TRANSLATE_GATE_PRODUCT_ID = 'text_translate'
+const TRANSLATE_GATE_PRODUCT_NAME = '外文翻译'
+
+/**
+ * 翻译功能门控：PRO / 已购放行；免费用户弹开通引导（含「看广告免费体验10分钟」，
+ * 广告解锁窗口内所有翻译按钮共享免检）。查询异常按现有 gateCheck 语义 fail-open。
+ * @returns {Promise<boolean>} true=放行
+ */
+function translateGateCheck() {
+  try {
+    const { gateCheck } = require('../../../utils/membership.js')
+    return gateCheck(TRANSLATE_GATE_PRODUCT_ID, TRANSLATE_GATE_PRODUCT_NAME)
+  } catch (e) {
+    return Promise.resolve(true)
+  }
+}
+
+function togglePageTranslation(page, opts) {
+  vibrateMedium()
+  const switchKey = opts.switchKey
+
+  // 已是译文 → 切回原文（免门控，override 字段清空即可露出原文）
+  if (page.data[switchKey]) {
+    const fields = (opts.fields || []).filter((f) => f && f.path)
+    const patch = {}
+    patch[switchKey] = false
+    for (const f of fields) patch[f.path] = f.revert != null ? f.revert : ''
+    page._textTranslateReverted = true
+    page.setData(patch)
+    return Promise.resolve()
+  }
+
+  // 翻译消耗云端 token：切到译文前统一走会员/看广告门控
+  return translateGateCheck().then((allowed) => {
+    if (!allowed) return
+    return _applyTranslation(page, opts)
+  })
+}
+
+function _applyTranslation(page, opts) {
+  page._textTranslateReverted = false
+  const switchKey = opts.switchKey
+  const loadingKey = opts.loadingKey
+  const fields = (opts.fields || []).filter((f) => f && f.path && String(f.text || '').trim())
+
+  // 预翻译命中的字段本地直切；剩余英文字段才需要云端翻译
+  const localPatch = {}
+  const needCloud = []
+  for (const f of fields) {
+    const zh = f.zh != null ? String(f.zh).trim() : ''
+    if (zh && isMostlyChinese(zh)) {
+      localPatch[f.path] = zh
+    } else if (!isMostlyChinese(f.text)) {
+      needCloud.push(f)
+    }
+  }
+  const localHit = Object.keys(localPatch).length
+
+  if (!needCloud.length) {
+    if (!localHit) {
+      wx.showToast({ title: '当前内容已是中文', icon: 'none' })
+      return Promise.resolve()
+    }
+    localPatch[switchKey] = true
+    page.setData(localPatch)
+    return Promise.resolve()
+  }
+
+  // 命中本页缓存的云端译文 → 直接切换（key 含原文，切换数据后自动失效）
+  const cacheKey = needCloud.map((f) => f.path + ':' + f.text).join('|')
+  const cached = page._textTranslateCache
+  if (cached && cached.key === cacheKey) {
+    const patch = Object.assign({}, localPatch)
+    patch[switchKey] = true
+    for (let i = 0; i < needCloud.length; i++) {
+      if (cached.list[i]) patch[needCloud[i].path] = cached.list[i]
+    }
+    page.setData(patch)
+    return Promise.resolve()
+  }
+
+  const loadingPatch = {}
+  loadingPatch[loadingKey] = true
+  page.setData(loadingPatch)
+
+  function applyList(list) {
+    const patch = Object.assign({}, localPatch)
+    patch[loadingKey] = false
+    let hit = 0
+    for (let i = 0; i < needCloud.length; i++) {
+      if (list[i]) {
+        patch[needCloud[i].path] = list[i]
+        hit++
+      }
+    }
+    if (hit + localHit > 0) {
+      patch[switchKey] = true
+      if (hit >= needCloud.length) {
+        page._textTranslateCache = { key: cacheKey, list }
+      } else {
+        page._textTranslateCache = null
+        wx.showToast({ title: '部分内容翻译失败，可稍后重试', icon: 'none' })
+      }
+    } else {
+      wx.showToast({ title: '翻译服务暂时无结果，请稍后再试', icon: 'none' })
+    }
+    page.setData(patch)
+  }
+
+  // 空结果 / 瞬时失败各自动重试一次（限频、网络抖动）
+  function runTranslate(isRetry) {
+    return translateTextsSmart(needCloud.map((f) => f.text))
+      .then((list) => {
+        const hit = (list || []).filter(Boolean).length
+        if (hit === 0 && localHit === 0 && !isRetry) {
+          return runTranslate(true)
+        }
+        applyList(list)
+      })
+      .catch((err) => {
+        const msg = (err && err.message) || '翻译失败'
+        // 永久性失败（密钥未配置/配额额度用尽）重试无意义，直接报错不再跑第二遍翻译管线；
+        // 注意 RequestLimitExceeded 是秒级限频（瞬时），不列入
+        const permanent = /未配置|密钥|配额|额度|AmountUsedUp|amount|quota/i.test(msg)
+        if (!isRetry && !permanent) {
+          return runTranslate(true)
+        }
+        const patch = {}
+        patch[loadingKey] = false
+        page.setData(patch)
+        wx.showToast({ title: friendlyTranslateError(msg), icon: 'none' })
+      })
+  }
+  return runTranslate(false)
+}
+
+module.exports = {
+  translateTexts,
+  translateTextsSmart,
+  togglePageTranslation,
+  translateGateCheck,
+  isMostlyChinese,
+  looksLikeTranslation,
+  friendlyTranslateError,
+  vibrateMedium
+}

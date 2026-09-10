@@ -85,12 +85,16 @@ function merge(current, value, defaults) {
   }
   const oldId = statusId(existing)
   const newId = statusId(incoming)
-  const oldSettled = !!TERMINAL_IDS[oldId] || oldId === INFLIGHT_ID
-  const newSettled = !!TERMINAL_IDS[newId] || newId === INFLIGHT_ID
+  const oldTerminal = !!TERMINAL_IDS[oldId]
+  const newTerminal = !!TERMINAL_IDS[newId]
+  const oldInflight = oldId === INFLIGHT_ID
+  const newSettled = newTerminal || newId === INFLIGHT_ID
+  // 与客户端一致：终态→非终态（含飞行中）、飞行中→pending 都算回归
+  const regression =
+    (oldTerminal && !newTerminal) || (oldInflight && !newSettled)
   const older =
     incoming.observedAtMs < existing.observedAtMs ||
     (incoming.observedAtMs === existing.observedAtMs && incoming.sourcePriority < existing.sourcePriority)
-  const regression = oldSettled && !newSettled
   if (older && !incoming.correction) {
     if (Number(current.sourcePriority) !== existing.sourcePriority) {
       return { ...existing, sourcePriority: existing.sourcePriority, revision: Number(current.revision) || 0 }
@@ -99,9 +103,19 @@ function merge(current, value, defaults) {
   }
   // resolve/detail 是 LL2 当前 status 的直接读数。它们可以修正低优先级
   // updates 文案推断出的错误终态，否则一次误判会永久锁死在终态。
+  // 例外：NET 已过后，禁止把飞行中权威纠正回 Go（LL2 详情缓存滞后常见）。
+  const netMs = (() => {
+    const raw = incoming.net || existing.net || ''
+    const t = raw ? new Date(raw).getTime() : NaN
+    return Number.isFinite(t) ? t : NaN
+  })()
+  const netStillUpcoming = Number.isFinite(netMs) && netMs > Date.now()
+  const blockInflightToPending =
+    oldInflight && !newSettled && !netStillUpcoming
   const authoritativeCorrection =
     regression &&
     !older &&
+    !blockInflightToPending &&
     incoming.sourcePriority >= SOURCE_PRIORITY.resolve &&
     incoming.sourcePriority > existing.sourcePriority
   const accept = incoming.correction || authoritativeCorrection || (!older && !regression)
@@ -158,8 +172,28 @@ function createLaunchStatusStore(db) {
 
   async function upsertMany(values, defaults) {
     const list = Array.isArray(values) ? values : []
+    if (!list.length) return []
+    // 先批量读出现状，本地 merge 预判：无变化的行直接跳过，
+    // 只有真正要更新的行才走 upsertOne 的事务读写（多数轮次为 0~3 行）
+    const ids = list
+      .map((v) => (v && v.id != null ? String(v.id) : ''))
+      .filter(Boolean)
+    const currentById = new Map()
+    try {
+      const existing = await getByIds(ids)
+      for (const row of existing) {
+        if (row && row.id != null) currentById.set(String(row.id), row)
+      }
+    } catch (e) {}
     const out = []
     for (let i = 0; i < list.length; i++) {
+      const incoming = normalize(list[i], defaults)
+      if (!incoming) continue
+      const current = currentById.get(incoming.id) || null
+      if (current && merge(current, incoming, defaults) === current) {
+        out.push(current)
+        continue
+      }
       const row = await upsertOne(list[i], defaults)
       if (row) out.push(row)
     }
@@ -168,17 +202,26 @@ function createLaunchStatusStore(db) {
 
   async function getByIds(ids) {
     const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)))
-    const rows = await Promise.all(
-      unique.map(async (id) => {
-        try {
-          const result = await collection.doc(id).get()
-          return result && result.data ? result.data : null
-        } catch (e) {
-          return null
+    if (!unique.length) return []
+    // 文档 _id 即 launch id：_.in 批量查询替代按 id 逐条 doc.get 的 N 次请求扇出
+    const CHUNK = 50
+    const command = db.command
+    const rows = []
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      try {
+        const result = await collection.where({ _id: command.in(chunk) }).limit(chunk.length).get()
+        if (result && Array.isArray(result.data)) rows.push(...result.data)
+      } catch (e) {
+        for (const id of chunk) {
+          try {
+            const one = await collection.doc(id).get()
+            if (one && one.data) rows.push(one.data)
+          } catch (e2) {}
         }
-      })
-    )
-    return rows.filter(Boolean)
+      }
+    }
+    return rows
   }
 
   async function getRecent(limit) {

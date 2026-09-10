@@ -37,10 +37,6 @@
   background: var(--bg-glass);
   backdrop-filter: blur(28rpx) saturate(170%);
   -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid var(--color-divider);
-  box-shadow:
-    var(--shadow-card),
-    var(--shadow-glass-inset);
   box-sizing: border-box;
   overflow: hidden;
   position: relative;

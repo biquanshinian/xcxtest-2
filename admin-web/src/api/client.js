@@ -1,3 +1,18 @@
+import {
+  peekList,
+  putList,
+  peekEdit,
+  putEdit,
+  peekSettings,
+  putSettings,
+  peekCustomers,
+  putCustomers,
+  peekDashboard,
+  putDashboard,
+  invalidateReads,
+  invalidateAll
+} from '../utils/tuwen-cache.js'
+
 const DEFAULT_API_BASE = 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.ap-shanghai.app.tcloudbase.com/admin'
 const API_BASE = import.meta.env.VITE_ADMIN_API_BASE || DEFAULT_API_BASE
 
@@ -22,7 +37,7 @@ function hasRole(minRole) {
   return (rank[role] || 0) >= (rank[minRole] || 0)
 }
 
-async function request(path, { method = 'GET', query, body } = {}) {
+async function request(path, { method = 'GET', query, body, keepalive = false } = {}) {
   const token = localStorage.getItem('admin_token')
   if (!API_BASE) {
     throw new Error('管理端 API 地址未配置（VITE_ADMIN_API_BASE）')
@@ -37,13 +52,20 @@ async function request(path, { method = 'GET', query, body } = {}) {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   }
 
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  }
+  const encoded = JSON.stringify(payload)
+  if (keepalive) {
+    fetch(url.toString(), { method: 'POST', headers, body: encoded, keepalive: true }).catch(() => {})
+    return null
+  }
+
   const res = await fetch(url.toString(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: JSON.stringify(payload)
+    headers,
+    body: encoded
   })
 
   const data = await res.json()
@@ -61,6 +83,20 @@ async function request(path, { method = 'GET', query, body } = {}) {
   return data.data
 }
 
+function withSince(query, cached) {
+  const next = { ...(query || {}) }
+  if (cached && cached.version) next.sinceVersion = cached.version
+  return next
+}
+
+function resolveVersioned(data, cached, put) {
+  if (data && data.unchanged && cached && cached.data) {
+    return { ...cached.data, unchanged: true, version: data.version }
+  }
+  if (data && put) put(data)
+  return data
+}
+
 function hasPermission(mod) {
   const user = getUser()
   if (!user) return false
@@ -69,11 +105,54 @@ function hasPermission(mod) {
   return perms.includes(mod)
 }
 
+const HOME_PATHS = [
+  ['dashboard', '/dashboard'],
+  ['preaudit', '/preaudit'],
+  ['tuwen_yewu', '/tuwen/dashboard'],
+  ['statistics', '/statistics'],
+  ['oa_content', '/oa-content/pipeline'],
+  ['news_events', '/news/events'],
+  ['news_articles', '/news/articles'],
+  ['launch_data', '/launch-data'],
+  ['starship_status', '/starship-status'],
+  ['starship_progress', '/starship-progress'],
+  ['starship_events', '/starship-event-updates'],
+  ['tweet_monitor', '/tweet-monitor'],
+  ['road_closure', '/road-closure'],
+  ['spacex_stats', '/spacex-stats'],
+  ['launch_votes', '/launch-votes'],
+  ['push_notify', '/push-notify'],
+  ['live_mgmt', '/live-management'],
+  ['lunar_wishes', '/lunar-wishes'],
+  ['astro_photos', '/astro-photos'],
+  ['milestone_rewards', '/milestone-rewards'],
+  ['knowledge_cards', '/knowledge-cards'],
+  ['announcements', '/announcements'],
+  ['carousel', '/carousel'],
+  ['splash_screen', '/splash-screen'],
+  ['shop_feed', '/shop-feed'],
+  ['cos_storage', '/cos-storage'],
+  ['watch_party', '/watch-party'],
+  ['users', '/users'],
+  ['logs', '/logs'],
+  ['cloud_functions', '/cloud-functions'],
+  ['global_config', '/global-config'],
+  ['data_export', '/data-export']
+]
+
+function homePath() {
+  for (let i = 0; i < HOME_PATHS.length; i++) {
+    if (hasPermission(HOME_PATHS[i][0])) return HOME_PATHS[i][1]
+  }
+  return '/preaudit'
+}
+
 export const auth = {
   getUser,
   clearAuth,
   hasRole,
-  hasPermission
+  hasPermission,
+  homePath
 }
 
 export const api = {
@@ -145,6 +224,18 @@ export const api = {
   },
   updateStarshipSplash(body) {
     return request('/starship/splash', { method: 'PUT', body })
+  },
+  listSplashUpcomingMissions() {
+    return request('/starship/splash/upcoming-missions', { method: 'GET' })
+  },
+  listOrbitPanoPreviousMissions() {
+    return request('/orbit-pano/previous-missions', { method: 'GET' })
+  },
+  getOrbitPano() {
+    return request('/orbit-pano', { method: 'GET' })
+  },
+  updateOrbitPano(body) {
+    return request('/orbit-pano', { method: 'PUT', body })
   },
   listChecklistHistory(query) {
     return request('/starship/checklist-history', { method: 'GET', query })
@@ -242,21 +333,6 @@ export const api = {
   batchUpdateMediaAssets(body) {
     return request('/media-assets/batch', { method: 'POST', body })
   },
-  listMediaFeed(query) {
-    return request('/media-feed', { method: 'GET', query })
-  },
-  createMediaFeed(body) {
-    return request('/media-feed', { method: 'POST', body })
-  },
-  updateMediaFeed(id, body) {
-    return request(`/media-feed/${id}`, { method: 'PUT', body })
-  },
-  deleteMediaFeed(id) {
-    return request(`/media-feed/${id}`, { method: 'DELETE' })
-  },
-  batchUpdateMediaFeed(body) {
-    return request('/media-feed/batch', { method: 'POST', body })
-  },
   listShopFeed(query) {
     return request('/shop-feed', { method: 'GET', query })
   },
@@ -278,6 +354,12 @@ export const api = {
   updatePopupAdConfig(body) {
     return request('/popup-ad-config', { method: 'PUT', body })
   },
+  getProfileShopConfig() {
+    return request('/profile-shop-config', { method: 'GET' })
+  },
+  updateProfileShopConfig(body) {
+    return request('/profile-shop-config', { method: 'PUT', body })
+  },
   listStarshipEvents(query) {
     return request('/starship-events', { method: 'GET', query })
   },
@@ -294,11 +376,199 @@ export const api = {
   triggerSync() {
     return request('/system/sync', { method: 'POST', body: { scope: 'all' } })
   },
+  /** 小时 NET 探针 + 待定排序自愈（服务端互调，不走云开发控制台） */
+  triggerLaunchNetHourly() {
+    return request('/system/sync-launch-net-hourly', { method: 'POST', body: { force: true } })
+  },
   cleanCache() {
     return request('/system/cache/clean', { method: 'POST' })
   },
   getPermissionModules() {
     return request('/permissions/modules', { method: 'GET' })
+  },
+  getTuwenStatus() {
+    return request('/tuwen/status', { method: 'GET' })
+  },
+  peekTuwenOrders(query) {
+    const hit = peekList(query)
+    return hit && hit.data ? hit.data : null
+  },
+  listTuwenOrders(query) {
+    const cached = peekList(query)
+    return request('/tuwen/orders', { method: 'GET', query: withSince(query, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => putList(query, row))
+    ))
+  },
+  getTuwenOrder(id) {
+    return request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'GET' })
+  },
+  peekTuwenOrderEdit(query) {
+    const hit = peekEdit(query)
+    return hit && hit.data ? hit.data : null
+  },
+  getTuwenOrderEdit(query) {
+    const q = query || {}
+    const cached = peekEdit(q)
+    return request('/tuwen/edit', { method: 'GET', query: withSince(q, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => putEdit(q, row))
+    ))
+  },
+  saveTuwenOrder(order, opts) {
+    const id = order && order.id
+    const keepalive = !!(opts && opts.keepalive)
+    const req = id
+      ? request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'PUT', body: { order }, keepalive })
+      : request('/tuwen/orders', { method: 'POST', body: { order }, keepalive })
+    if (keepalive) {
+      invalidateReads()
+      return req
+    }
+    return Promise.resolve(req).then((data) => {
+      invalidateReads()
+      if (data && data.order) {
+        const prev = peekEdit({ id: data.order.id }) || peekEdit({ id: '' })
+        if (prev && prev.data) {
+          putEdit({ id: data.order.id }, {
+            ...prev.data,
+            order: data.order,
+            version: data.version,
+            copied: false
+          })
+        }
+      }
+      return data
+    })
+  },
+  saveTuwenOrderKeepalive(order) {
+    const slim = {
+      ...order,
+      lines: (Array.isArray(order && order.lines) ? order.lines : []).map((line) => {
+        const next = { ...line }
+        delete next.sampleImageDataUrl
+        return next
+      })
+    }
+    return this.saveTuwenOrder(slim, { keepalive: true })
+  },
+  deleteTuwenOrder(id) {
+    invalidateReads()
+    invalidateAll()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  importTuwenWorkspace(body) {
+    invalidateAll()
+    return request('/tuwen/import', { method: 'POST', body })
+  },
+  getTuwenWorkspace() {
+    return request('/tuwen/workspace', { method: 'GET' })
+  },
+  peekTuwenDashboard() {
+    const hit = peekDashboard()
+    return hit && hit.data ? hit.data : null
+  },
+  getTuwenDashboard() {
+    const cached = peekDashboard()
+    return request('/tuwen/dashboard', { method: 'GET', query: withSince({}, cached) }).then((data) => (
+      resolveVersioned(data, cached, putDashboard)
+    ))
+  },
+  setTuwenOrderStatus(id, status) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status } })
+  },
+  batchTuwenOrderStatus(ids, status) {
+    invalidateReads()
+    return request('/tuwen/orders/batch-status', { method: 'POST', body: { ids, status } })
+  },
+  payTuwenOrder(id, body) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/pay`, { method: 'POST', body })
+  },
+  copyTuwenOrder(id) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/copy`, { method: 'POST' })
+  },
+  sortTuwenOrders(ids) {
+    invalidateReads()
+    return request('/tuwen/orders/sort', { method: 'POST', body: { ids } })
+  },
+  listTuwenCustomers(query) {
+    const q = query && String(query.q || '').trim()
+    const cached = !q ? peekCustomers() : null
+    return request('/tuwen/customers', { method: 'GET', query: withSince(query, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => { if (!q) putCustomers(row) })
+    ))
+  },
+  saveTuwenCustomer(customer) {
+    invalidateReads()
+    const id = customer && customer.id
+    if (id) return request(`/tuwen/customers/${encodeURIComponent(id)}`, { method: 'PUT', body: { customer } })
+    return request('/tuwen/customers', { method: 'POST', body: { customer } })
+  },
+  deleteTuwenCustomer(id) {
+    invalidateReads()
+    return request(`/tuwen/customers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenSuppliers() {
+    return request('/tuwen/suppliers', { method: 'GET' })
+  },
+  saveTuwenSupplier(supplier) {
+    const id = supplier && supplier.id
+    if (id) return request(`/tuwen/suppliers/${encodeURIComponent(id)}`, { method: 'PUT', body: { supplier } })
+    return request('/tuwen/suppliers', { method: 'POST', body: { supplier } })
+  },
+  deleteTuwenSupplier(id) {
+    return request(`/tuwen/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenExpenses(query) {
+    return request('/tuwen/expenses', { method: 'GET', query })
+  },
+  saveTuwenExpense(expense) {
+    const id = expense && expense.id
+    if (id) return request(`/tuwen/expenses/${encodeURIComponent(id)}`, { method: 'PUT', body: { expense } })
+    return request('/tuwen/expenses', { method: 'POST', body: { expense } })
+  },
+  deleteTuwenExpense(id) {
+    return request(`/tuwen/expenses/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenAfterSales() {
+    return request('/tuwen/after-sales', { method: 'GET' })
+  },
+  saveTuwenAfterSale(afterSale) {
+    const id = afterSale && afterSale.id
+    if (id) return request(`/tuwen/after-sales/${encodeURIComponent(id)}`, { method: 'PUT', body: { afterSale } })
+    return request('/tuwen/after-sales', { method: 'POST', body: { afterSale } })
+  },
+  deleteTuwenAfterSale(id) {
+    return request(`/tuwen/after-sales/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  getTuwenStatements(query) {
+    return request('/tuwen/statements', { method: 'GET', query })
+  },
+  collectTuwenStatement(body) {
+    return request('/tuwen/statements/collect', { method: 'POST', body })
+  },
+  proxyTuwenSampleImage(url) {
+    return request('/tuwen/sample-image', { method: 'POST', body: { url } })
+  },
+  getTuwenReports(query) {
+    return request('/tuwen/reports', { method: 'GET', query })
+  },
+  listTuwenAuditLogs(query) {
+    return request('/tuwen/audit-logs', { method: 'GET', query })
+  },
+  getTuwenSettings() {
+    const cached = peekSettings()
+    return request('/tuwen/settings', { method: 'GET', query: withSince({}, cached) }).then((data) => (
+      resolveVersioned(data, cached, putSettings)
+    ))
+  },
+  saveTuwenSettings(settings) {
+    return request('/tuwen/settings', { method: 'PUT', body: { settings } }).then((data) => {
+      invalidateReads()
+      if (data) putSettings(data)
+      return data
+    })
   },
   listPushSubscriptions(query) {
     return request('/push/subscriptions', { method: 'GET', query })
@@ -320,6 +590,18 @@ export const api = {
   },
   syncLaunchData() {
     return request('/launch-data/sync', { method: 'POST' })
+  },
+  syncAgencies() {
+    return request('/agencies/sync', { method: 'POST' })
+  },
+  listMissionReplays(query) {
+    return request('/mission-replays', { method: 'GET', query })
+  },
+  deleteMissionReplay(id) {
+    return request(`/mission-replays/${id}`, { method: 'DELETE' })
+  },
+  decommissionBilibiliPublish(body = {}) {
+    return request('/ops/decommission-bilibili-publish', { method: 'POST', body })
   },
   cleanLaunchDataCache() {
     return request('/launch-data/clean', { method: 'POST' })
@@ -344,6 +626,9 @@ export const api = {
   },
   toggleTweetAccount(id, enabled) {
     return request(`/tweet-monitor/accounts/${id}/toggle`, { method: 'PUT', body: { enabled } })
+  },
+  updateTweetAccountBadge(id, verifyBadge) {
+    return request(`/tweet-monitor/accounts/${id}/badge`, { method: 'PUT', body: { verifyBadge } })
   },
   getStatisticsOverview() {
     return request('/statistics/overview', { method: 'GET' })
@@ -384,20 +669,14 @@ export const api = {
   listCloudFunctions() {
     return request('/cloud-functions', { method: 'GET' })
   },
-  triggerCloudFunction(name) {
-    return request(`/cloud-functions/${name}/trigger`, { method: 'POST' })
+  triggerCloudFunction(name, body = {}) {
+    return request(`/cloud-functions/${name}/trigger`, { method: 'POST', body })
   },
   getGlobalConfig() {
     return request('/global-config', { method: 'GET' })
   },
   updateGlobalConfig(body) {
     return request('/global-config', { method: 'PUT', body })
-  },
-  getOrbitalConfig() {
-    return request('/orbital-config', { method: 'GET' })
-  },
-  updateOrbitalConfig(body) {
-    return request('/orbital-config', { method: 'PUT', body })
   },
   getOrbitalConfig() {
     return request('/orbital-config', { method: 'GET' })
@@ -461,6 +740,9 @@ export const api = {
   deleteLaunchVote(id) {
     return request(`/launch-votes/${id}`, { method: 'DELETE' })
   },
+  rebuildLaunchVoteSettle(body = {}) {
+    return request('/launch-votes/rebuild-settle', { method: 'POST', body })
+  },
   // 月愿计划
   listLunarWishes(query) {
     return request('/lunar-wishes/list', { method: 'GET', query })
@@ -479,6 +761,22 @@ export const api = {
   },
   lunarWishesStats() {
     return request('/lunar-wishes/stats', { method: 'GET' })
+  },
+  // 航天摄影（影像）
+  listAstroPhotos(query) {
+    return request('/astro-photos/list', { method: 'GET', query })
+  },
+  reviewAstroPhoto(body) {
+    return request('/astro-photos/review', { method: 'POST', body })
+  },
+  batchReviewAstroPhotos(body) {
+    return request('/astro-photos/batch-review', { method: 'POST', body })
+  },
+  deleteAstroPhoto(body) {
+    return request('/astro-photos/delete', { method: 'POST', body })
+  },
+  astroPhotosStats() {
+    return request('/astro-photos/stats', { method: 'GET' })
   },
   // 里程碑彩蛋
   listMilestoneRewards(query) {
@@ -530,8 +828,8 @@ export const api = {
   exportMembershipOrders(query) {
     return request('/membership/orders/export', { method: 'GET', query })
   },
-  recheckPendingMembershipOrders() {
-    return request('/membership/orders/recheck-pending', { method: 'POST' })
+  recheckPendingMembershipOrders(body) {
+    return request('/membership/orders/recheck-pending', { method: 'POST', body: body || {} })
   },
   grantMembershipPro(body) {
     return request('/membership/grant-pro', { method: 'POST', body })
@@ -554,43 +852,249 @@ export const api = {
   listInviteRecords(query) {
     return request('/invites/records', { method: 'GET', query })
   },
-  getBilibiliAutoPublish() {
-    return request('/bilibili-auto-publish', { method: 'GET' })
+  // ===== 公众号内容中台 =====
+  getOaContentConfig() {
+    return request('/oa-content/config', { method: 'GET' })
   },
-  updateBilibiliAutoPublish(body) {
-    return request('/bilibili-auto-publish', { method: 'PUT', body })
+  updateOaContentConfig(body) {
+    return request('/oa-content/config', { method: 'PUT', body })
   },
-  enqueueBilibiliPublish() {
-    return request('/bilibili-auto-publish/enqueue', { method: 'POST' })
+  listOaTopics(query) {
+    return request('/oa-content/topics', { method: 'GET', query })
   },
-  listBilibiliTopics(query) {
-    return request('/bilibili-topics', { method: 'GET', query })
+  generateOaContent(body) {
+    return request('/oa-content/generate', { method: 'POST', body })
   },
-  createBilibiliTopic(body) {
-    return request('/bilibili-topics', { method: 'POST', body })
+  listOaThemes() {
+    return request('/oa-content/themes', { method: 'GET' })
   },
-  updateBilibiliTopic(id, body) {
-    return request(`/bilibili-topics/${id}`, { method: 'PUT', body })
+  previewOaContent(body) {
+    return request('/oa-content/preview', { method: 'POST', body })
   },
-  deleteBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}`, { method: 'DELETE' })
+  /** 一次返回全主题 HTML，前端无缝切换（对标 gallery.html） */
+  previewOaAllThemes(body) {
+    return request('/oa-content/preview-all', { method: 'POST', body })
   },
-  seedBilibiliTopics() {
-    return request('/bilibili-topics/seed', { method: 'POST' })
+  previewOaXhs(body) {
+    return request('/oa-content/preview-xhs', { method: 'POST', body })
   },
-  promoteBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}/promote`, { method: 'POST' })
+  importOaDraft(body) {
+    return request('/oa-content/drafts/import', { method: 'POST', body })
   },
-  rejectBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}/reject`, { method: 'POST' })
+  deriveOaXhs(id, body) {
+    return request(`/oa-content/drafts/${id}/derive-xhs`, { method: 'POST', body: body || {} })
   },
-  listBilibiliTopicBlacklist() {
-    return request('/bilibili-topic-blacklist', { method: 'GET' })
+  exportOaXhs(id, body) {
+    return request(`/oa-content/drafts/${id}/export-xhs`, { method: 'POST', body: body || {} })
   },
-  addBilibiliTopicBlacklist(body) {
-    return request('/bilibili-topic-blacklist', { method: 'POST', body })
+  runOaDaily() {
+    return request('/oa-content/run-daily', { method: 'POST' })
   },
-  removeBilibiliTopicBlacklist(id) {
-    return request(`/bilibili-topic-blacklist/${id}`, { method: 'DELETE' })
+  runOaTrackSources(body) {
+    return request('/oa-content/track-sources', { method: 'POST', body: body || {} })
+  },
+  runOaTrackWash(body) {
+    return request('/oa-content/track-wash', { method: 'POST', body: body || {} })
+  },
+  listOaJobs(query) {
+    return request('/oa-content/jobs', { method: 'GET', query })
+  },
+  listOaPrompts(query) {
+    return request('/oa-content/prompts', { method: 'GET', query })
+  },
+  createOaPrompt(body) {
+    return request('/oa-content/prompts', { method: 'POST', body })
+  },
+  updateOaPrompt(id, body) {
+    return request(`/oa-content/prompts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaPrompt(id) {
+    return request(`/oa-content/prompts/${id}`, { method: 'DELETE' })
+  },
+  seedOaPrompts(body) {
+    return request('/oa-content/prompts/seed', { method: 'POST', body: body || {} })
+  },
+  listOaStrategies(query) {
+    return request('/oa-content/strategies', { method: 'GET', query })
+  },
+  createOaStrategy(body) {
+    return request('/oa-content/strategies', { method: 'POST', body })
+  },
+  updateOaStrategy(id, body) {
+    return request(`/oa-content/strategies/${id}`, { method: 'PUT', body })
+  },
+  deleteOaStrategy(id) {
+    return request(`/oa-content/strategies/${id}`, { method: 'DELETE' })
+  },
+  seedOaStrategies(body) {
+    return request('/oa-content/strategies/seed', { method: 'POST', body: body || {} })
+  },
+  listOaDrafts(query) {
+    return request('/oa-content/drafts', { method: 'GET', query })
+  },
+  getOaDraft(id) {
+    return request(`/oa-content/drafts/${id}`, { method: 'GET' })
+  },
+  updateOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaDraft(id) {
+    return request(`/oa-content/drafts/${id}`, { method: 'DELETE' })
+  },
+  batchDeleteOaDrafts(ids) {
+    return request('/oa-content/drafts/batch-delete', { method: 'POST', body: { ids } })
+  },
+  pushOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}/push`, { method: 'POST', body: body || {} })
+  },
+  prepareOaDraftImages(id, body) {
+    return request(`/oa-content/drafts/${id}/prepare-images`, {
+      method: 'POST',
+      body: body || {}
+    })
+  },
+  proxyOaImage(url) {
+    return request('/oa-content/image-proxy', { method: 'POST', body: { url } })
+  },
+  publishOaDraft(id) {
+    return request(`/oa-content/drafts/${id}/publish`, { method: 'POST' })
+  },
+  rejectOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}/reject`, { method: 'POST', body })
+  },
+  listOaAccounts(query) {
+    return request('/oa-content/accounts', { method: 'GET', query })
+  },
+  createOaAccount(body) {
+    return request('/oa-content/accounts', { method: 'POST', body })
+  },
+  updateOaAccount(id, body) {
+    return request(`/oa-content/accounts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaAccount(id) {
+    return request(`/oa-content/accounts/${id}`, { method: 'DELETE' })
+  },
+  listOaAccountArticles(id, query) {
+    return request('/oa-content/account-articles', {
+      method: 'GET',
+      query: { ...(query || {}), accountId: id }
+    })
+  },
+  listOaViral(query) {
+    return request('/oa-content/viral', { method: 'GET', query })
+  },
+  upsertOaViral(body) {
+    return request('/oa-content/viral', { method: 'POST', body })
+  },
+  deleteOaViral(id) {
+    return request(`/oa-content/viral/${id}`, { method: 'DELETE' })
+  },
+  listOaTitles(query) {
+    return request('/oa-content/titles', { method: 'GET', query })
+  },
+  createOaTitle(body) {
+    return request('/oa-content/titles', { method: 'POST', body })
+  },
+  deleteOaTitle(id) {
+    return request(`/oa-content/titles/${id}`, { method: 'DELETE' })
+  },
+  analyzeOaTitle(body) {
+    return request('/oa-content/titles/analyze', { method: 'POST', body })
+  },
+  generateOaTitles(body) {
+    return request('/oa-content/titles/generate', { method: 'POST', body })
+  },
+  listOaCollected(query) {
+    return request('/oa-content/collected', { method: 'GET', query })
+  },
+  deleteOaCollected(id) {
+    return request(`/oa-content/collected/${id}`, { method: 'DELETE' })
+  },
+
+  // ===== 火箭观礼服务 =====
+  getWatchPartyGlobalConfig() {
+    return request('/watch-party/global-config', { method: 'GET' })
+  },
+  updateWatchPartyGlobalConfig(body) {
+    return request('/watch-party/global-config', { method: 'PUT', body })
+  },
+  listWatchPartyMerchants(query) {
+    return request('/watch-party/merchants', { method: 'GET', query })
+  },
+  createWatchPartyMerchant(body) {
+    return request('/watch-party/merchants', { method: 'POST', body })
+  },
+  updateWatchPartyMerchant(id, body) {
+    return request(`/watch-party/merchants/${id}`, { method: 'PUT', body })
+  },
+  updateWatchPartyMerchantPassGrant(id, enabled) {
+    return request(`/watch-party/merchants/${id}/pass-grant`, { method: 'PUT', body: { enabled: enabled === true } })
+  },
+  /** 运营确认收款后续费：plan = month | quarter | year */
+  renewWatchPartyMerchantMembership(id, plan) {
+    return request(`/watch-party/merchants/${id}/membership-renew`, { method: 'POST', body: { plan } })
+  },
+  sweepWatchPartyMerchantMemberships() {
+    return request('/watch-party/merchants/membership-sweep', { method: 'POST', body: {} })
+  },
+  deleteWatchPartyMerchant(id) {
+    return request(`/watch-party/merchants/${id}`, { method: 'DELETE' })
+  },
+  getWatchPartyMerchantStats(id) {
+    return request(`/watch-party/merchants/${id}/stats`, { method: 'GET' })
+  },
+  generateWatchPartyMerchantCode(id, body) {
+    return request(`/watch-party/merchants/${id}/code`, { method: 'POST', body: body || {} })
+  },
+  listWatchPartyUpcomingLaunches() {
+    return request('/watch-party/upcoming-launches', { method: 'GET' })
+  },
+  listWatchPartyMerchantLeads(query) {
+    return request('/watch-party/merchant-leads', { method: 'GET', query })
+  },
+  updateWatchPartyMerchantLead(id, body) {
+    return request(`/watch-party/merchant-leads/${id}`, { method: 'PUT', body })
+  },
+  approveWatchPartyMerchantLead(id) {
+    return request(`/watch-party/merchant-leads/${id}/approve`, { method: 'POST' })
+  },
+  listWatchPartySessions(query) {
+    return request('/watch-party/sessions', { method: 'GET', query })
+  },
+  createWatchPartySession(body) {
+    return request('/watch-party/sessions', { method: 'POST', body })
+  },
+  updateWatchPartySession(id, body) {
+    return request(`/watch-party/sessions/${id}`, { method: 'PUT', body })
+  },
+  deleteWatchPartySession(id) {
+    return request(`/watch-party/sessions/${id}`, { method: 'DELETE' })
+  },
+  listWatchPartyReservations(query) {
+    return request('/watch-party/reservations', { method: 'GET', query })
+  },
+  checkInWatchPartyReservation(id) {
+    return request(`/watch-party/reservations/${id}/check-in`, { method: 'POST' })
+  },
+  listSouvenirCards(query) {
+    return request('/watch-party/cards', { method: 'GET', query })
+  },
+  createSouvenirCard(body) {
+    return request('/watch-party/cards', { method: 'POST', body })
+  },
+  updateSouvenirCard(id, body) {
+    return request(`/watch-party/cards/${id}`, { method: 'PUT', body })
+  },
+  deleteSouvenirCard(id) {
+    return request(`/watch-party/cards/${id}`, { method: 'DELETE' })
+  },
+  listWatchPartyDraws(query) {
+    return request('/watch-party/draws', { method: 'GET', query })
+  },
+  getWatchPartyStats(sessionId) {
+    return request('/watch-party/stats', { method: 'GET', query: { sessionId } })
+  },
+  generateWatchPartyWxacode(body) {
+    return request('/watch-party/wxacode', { method: 'POST', body })
   }
 }

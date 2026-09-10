@@ -4,7 +4,7 @@
   "description": "同步 The Space Devs API 数据到云数据库",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "~2.6.3",
+    "wx-server-sdk": "~4.0.2",
     "cos-nodejs-sdk-v5": "^2.14.6"
   }
 }

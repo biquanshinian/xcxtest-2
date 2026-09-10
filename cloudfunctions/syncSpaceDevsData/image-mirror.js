@@ -254,7 +254,7 @@ async function collectTargetDocs() {
     }
   }
 
-  // 1) 机构：分页 / featured / 聚合 / 分批 / 详情文档全覆盖
+  // 1) 机构：分页 / featured / 聚合 / 分批 / 详情文档全覆盖（含发射商 logo）
   const agencyDocs = await getDocsByIdPrefix(CACHE_COLLECTION, 'api_cache_/agencies/', 100)
   for (const d of agencyDocs) pushDoc(CACHE_COLLECTION, d)
 
@@ -272,7 +272,22 @@ async function collectTargetDocs() {
   const stationDocs = await getDocsByIdPrefix(CACHE_COLLECTION, 'api_cache_/space_stations/', 60)
   for (const d of stationDocs) pushDoc(CACHE_COLLECTION, d)
 
-  // 5) 轨道事件 + 在轨任务（spacex_launch_stats 单文档，字段级替换）
+  // 5) 发射列表 / 详情：含 mission_patches 任务徽章 + launch_service_provider.logo
+  //    详情文档量可能较大，优先 upcoming/previous 分片，再扫有限数量的 launches/{id} 详情
+  const upcomingDocs = await getDocsByIdPrefix(CACHE_COLLECTION, 'api_cache_/launches/upcoming/', 40)
+  for (const d of upcomingDocs) pushDoc(CACHE_COLLECTION, d)
+  const previousDocs = await getDocsByIdPrefix(CACHE_COLLECTION, 'api_cache_/launches/previous/', 40)
+  for (const d of previousDocs) pushDoc(CACHE_COLLECTION, d)
+  const launchDetailDocs = await getDocsByIdPrefix(CACHE_COLLECTION, 'api_cache_/launches/', 120)
+  for (const d of launchDetailDocs) {
+    const id = String(d && d._id || '')
+    // 跳过已在 upcoming/previous 前缀扫过的列表分片
+    if (id.indexOf('api_cache_/launches/upcoming/') === 0) continue
+    if (id.indexOf('api_cache_/launches/previous/') === 0) continue
+    pushDoc(CACHE_COLLECTION, d)
+  }
+
+  // 6) 轨道事件 + 在轨任务（spacex_launch_stats 单文档，字段级替换）
   const statsDoc = await getDocById('spacex_launch_stats', 'spacex_official_live')
   if (statsDoc) {
     targets.push({

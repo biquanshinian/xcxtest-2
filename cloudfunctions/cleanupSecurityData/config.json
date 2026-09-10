@@ -6,5 +6,5 @@
       "config": "0 30 3 * * * *"
     }
   ],
-  "timeout": 60
+  "timeout": 90
 }

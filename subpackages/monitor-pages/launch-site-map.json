@@ -1,5 +1,11 @@
 {
   "navigationStyle": "custom",
   "disableScroll": true,
-  "backgroundTextStyle": "dark"
+  "backgroundTextStyle": "dark",
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view"
+  }
 }

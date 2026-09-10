@@ -1,0 +1,15 @@
+---
+description: 节日帽法定假日表与复用组件（星问 + 倒计时圆图）
+globs: "{utils/festival-hat.js,components/festival-hat/**,subpackages/shared/components/ai-chat/**,pages/index/index.*}"
+alwaysApply: false
+---
+
+# 节日帽
+
+- 日期解析：`utils/festival-hat.js`（覆盖至少到 2030）；仅法定放假期间展示。
+- UI：`components/festival-hat`，`size` = 宿主圆直径 rpx（星问 112，倒计时配置图 132），按基准 112 缩放贴合。
+- 星问欢迎头像、首页倒计时左上角圆图共用同一 `resolveFestivalHatId`，日期对齐。
+- 已发国办通知写入 `OFFICIAL_HOLIDAY_WINDOWS`；未发年份用农历锚点预估，通知后覆盖。
+- 含圣诞帽：每年 12/24–12/26（与国办假同一套解析/展示链路）。
+- 不做清明节帽。上线前 `FESTIVAL_HAT_DEV_MODE = false`。
+---

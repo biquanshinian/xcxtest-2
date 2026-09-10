@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>长征十号乙 · 海南商发 2 号 · 海上网系回收</name>
+    <description>后台锁定：长征十号乙 · 海南商发2号 · 网系回收。搜索请用「纬度, 经度」。发射：海南商业航天发射场 2 号工位（LL2 Commercial LC-2 19.59755, 110.936481）。回收：领航者号网系平台，用首飞驻位 16.60417, 113.52867，后续任务船位会变。</description>
+    <Style id="line">
+      <LineStyle>
+        <color>ffff9f0a</color>
+        <width>4</width>
+      </LineStyle>
+    </Style>
+    <Style id="pin-start">
+      <IconStyle>
+        <color>ff34c759</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+    <Style id="pin-end">
+      <IconStyle>
+        <color>ffff9f0a</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+      <LookAt>
+        <longitude>112.232575</longitude>
+        <latitude>18.100860</latitude>
+        <altitude>0</altitude>
+        <heading>0</heading>
+        <tilt>45</tilt>
+        <range>948366</range>
+        <altitudeMode>relativeToGround</altitudeMode>
+      </LookAt>
+    <Placemark id="start">
+      <name>发射 · 海南商发 2 号工位</name>
+      <styleUrl>#pin-start</styleUrl>
+      <Point>
+        <coordinates>110.936481,19.597550,0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark id="end">
+      <name>回收 · 领航者号（首飞驻位）</name>
+      <styleUrl>#pin-end</styleUrl>
+      <Point>
+        <coordinates>113.528670,16.604170,0</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark id="route">
+      <name>长征十号乙 · 海南商发 2 号 · 海上网系回收 · 航迹</name>
+      <styleUrl>#line</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <coordinates>
+          110.936481,19.597550,0
+          111.018870,19.504549,0
+          111.101164,19.411510,0
+          111.183364,19.318435,0
+          111.265470,19.225322,0
+          111.347483,19.132173,0
+          111.429404,19.038988,0
+          111.511233,18.945767,0
+          111.592970,18.852510,0
+          111.674617,18.759217,0
+          111.756173,18.665889,0
+          111.837640,18.572526,0
+          111.919017,18.479127,0
+          112.000306,18.385694,0
+          112.081507,18.292227,0
+          112.162620,18.198725,0
+          112.243647,18.105190,0
+          112.324586,18.011620,0
+          112.405440,17.918017,0
+          112.486209,17.824381,0
+          112.566892,17.730711,0
+          112.647491,17.637008,0
+          112.728007,17.543273,0
+          112.808439,17.449506,0
+          112.888789,17.355706,0
+          112.969056,17.261874,0
+          113.049242,17.168010,0
+          113.129346,17.074114,0
+          113.209370,16.980187,0
+          113.289314,16.886229,0
+          113.369178,16.792240,0
+          113.448963,16.698220,0
+          113.528670,16.604170,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

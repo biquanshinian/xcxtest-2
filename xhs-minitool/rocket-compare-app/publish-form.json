@@ -1,0 +1,8 @@
+{
+  "name": "火箭对照",
+  "intro": "两箭对照，轰鸣晚几秒",
+  "version": "1.0.0",
+  "permissions": ["设备相册"],
+  "icon": "icon-512.png",
+  "zip": "rocket-compare.zip"
+}

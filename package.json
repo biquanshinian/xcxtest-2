@@ -9,7 +9,7 @@
     "lint:strict": "eslint . --max-warnings=0",
     "format": "prettier --check \"**/*.{js,json}\" --ignore-path .prettierignore",
     "format:fix": "prettier --write \"**/*.{js,json}\" --ignore-path .prettierignore",
-    "test": "node --test \"test/*.test.js\" \"cloudfunctions/syncSpaceDevsData/*.test.js\"",
+    "test": "node --test \"test/*.test.js\" \"cloudfunctions/syncSpaceDevsData/*.test.js\" \"cloudfunctions/ll2Query/*.test.js\"",
     "test:client": "node --test \"test/*.test.js\""
   },
   "devDependencies": {
@@ -17,5 +17,8 @@
     "eslint": "9.15.0",
     "globals": "15.12.0",
     "prettier": "3.3.3"
+  },
+  "dependencies": {
+    "wrangler": "^4.129.0"
   }
 }

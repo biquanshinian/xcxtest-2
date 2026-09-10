@@ -107,6 +107,48 @@ async function readLaunchList(kind) {
   return { results: [], count: 0, cacheKey: null }
 }
 
+function slimLanding(landing) {
+  if (!landing || typeof landing !== 'object') return undefined
+  const type = landing.type && typeof landing.type === 'object'
+    ? { id: landing.type.id, name: landing.type.name || '', abbrev: landing.type.abbrev || '' }
+    : (landing.type || undefined)
+  const loc = landing.location && typeof landing.location === 'object'
+    ? { name: landing.location.name || '', abbrev: landing.location.abbrev || '' }
+    : undefined
+  return { success: landing.success, type, location: loc }
+}
+
+function slimLauncherStages(stages) {
+  if (!Array.isArray(stages) || !stages.length) return undefined
+  return stages.slice(0, 8).map((s) => ({
+    type: s.type || '',
+    reused: s.reused,
+    launcher: s.launcher && typeof s.launcher === 'object'
+      ? { id: s.launcher.id, serial_number: s.launcher.serial_number || s.launcher.serial || '' }
+      : undefined,
+    landing: slimLanding(s.landing)
+  }))
+}
+
+function slimOrbit(orbit) {
+  if (!orbit || typeof orbit !== 'object') return undefined
+  return {
+    id: orbit.id,
+    name: orbit.name || '',
+    abbrev: orbit.abbrev || '',
+    nameZh: orbit.nameZh || undefined
+  }
+}
+
+function slimUpdates(updates) {
+  if (!Array.isArray(updates) || !updates.length) return undefined
+  return updates.slice(0, 8).map((u) => ({
+    created_on: u.created_on || u.createdOn || '',
+    comment: u.comment || '',
+    info_url: u.info_url || u.infoUrl || ''
+  }))
+}
+
 function slimLaunch(launch) {
   if (!launch || typeof launch !== 'object') return null
   const rocket = launch.rocket || {}
@@ -116,22 +158,40 @@ function slimLaunch(launch) {
   const mission = launch.mission || {}
   const status = launch.status || {}
   const provider = launch.launch_service_provider || {}
+  const netPrecisionRaw = launch.net_precision
+  const net_precision = netPrecisionRaw && typeof netPrecisionRaw === 'object'
+    ? {
+        id: netPrecisionRaw.id,
+        name: netPrecisionRaw.name || '',
+        abbrev: netPrecisionRaw.abbrev || ''
+      }
+    : (netPrecisionRaw || null)
+  const launcher_stage = slimLauncherStages(rocket.launcher_stage || launch.launcher_stage)
+
   return {
     id: launch.id,
     name: launch.name || '',
+    nameZh: launch.nameZh || undefined,
     net: launch.net || '',
+    previous_net: launch.previous_net || launch.previousNet || undefined,
+    net_precision,
     window_start: launch.window_start || '',
     window_end: launch.window_end || '',
+    weather_concerns: launch.weather_concerns || undefined,
+    url: launch.url || undefined,
     status: {
       id: status.id,
       name: status.name || '',
-      abbrev: status.abbrev || ''
+      abbrev: status.abbrev || '',
+      nameZh: status.nameZh || undefined
     },
     rocket: {
       configuration: {
         id: configuration.id,
         name: configuration.name || '',
+        nameZh: configuration.nameZh || undefined,
         full_name: configuration.full_name || '',
+        full_nameZh: configuration.full_nameZh || undefined,
         family: configuration.family || '',
         variant: configuration.variant || '',
         length: configuration.length,
@@ -141,29 +201,48 @@ function slimLaunch(launch) {
         leo_capacity: configuration.leo_capacity,
         gto_capacity: configuration.gto_capacity,
         reusable: configuration.reusable
-      }
+      },
+      launcher_stage
     },
     mission: {
       name: mission.name || '',
-      type: mission.type || '',
-      description: mission.description || ''
+      nameZh: mission.nameZh || undefined,
+      type: mission.type && typeof mission.type === 'object'
+        ? { id: mission.type.id, name: mission.type.name || '' }
+        : (mission.type || ''),
+      orbit: slimOrbit(mission.orbit),
+      description: mission.description || '',
+      descriptionZh: mission.descriptionZh || undefined
     },
     pad: {
+      id: pad.id,
       name: pad.name || '',
+      nameZh: pad.nameZh || undefined,
       latitude: pad.latitude,
       longitude: pad.longitude,
+      country_code: pad.country_code || '',
       location: {
         id: location.id,
         name: location.name || '',
+        nameZh: location.nameZh || undefined,
         country_code: location.country_code || ''
       }
     },
     launch_service_provider: {
       id: provider.id,
       name: provider.name || '',
+      nameZh: provider.nameZh || undefined,
       abbrev: provider.abbrev || '',
-      type: provider.type || ''
+      type: provider.type || '',
+      country_code: provider.country_code || '',
+      logo: provider.logo && typeof provider.logo === 'object'
+        ? {
+            image_url: provider.logo.image_url || '',
+            thumbnail_url: provider.logo.thumbnail_url || ''
+          }
+        : undefined
     },
+    updates: slimUpdates(launch.updates),
     image: launch.image && typeof launch.image === 'object'
       ? {
           thumbnail_url: launch.image.thumbnail_url || '',
@@ -415,7 +494,7 @@ async function handleAgencies(query) {
   ]
   let results = []
   for (const params of paramsList) {
-    for (const suffix of ['', '_slim_v6', '_slim_v5']) {
+    for (const suffix of ['_slim_v6', '_slim_v5', '']) {
       const key = cacheKeyFor('/agencies/', params, suffix)
       const doc = await getCacheDoc(key)
       if (!doc) continue
@@ -694,8 +773,8 @@ async function handleMediaMap() {
     rows.forEach((item) => {
       const key = item && item.key != null ? String(item.key).trim() : ''
       const url = item && typeof item.url === 'string' ? item.url.trim() : ''
-      // 仅下发火箭配置图相关 key，避免其它 COS 素材被公众站滥用
-      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图') === 0)) {
+      // 仅下发火箭配置图相关 key（原图 / 机娘），避免其它 COS 素材被公众站滥用
+      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图-机娘/') === 0 || key.indexOf('火箭配置图') === 0)) {
         map[key] = url
       }
     })
@@ -757,7 +836,7 @@ async function handleNewsEvents(query) {
   ]
   let results = []
   for (const params of candidateParams) {
-    for (const suffix of ['', '_slim_v6', '_slim_v5']) {
+    for (const suffix of ['_slim_v6', '_slim_v5', '']) {
       const key = cacheKeyFor('/events/upcoming/', params, suffix)
       const doc = await getCacheDoc(key)
       if (!doc) continue

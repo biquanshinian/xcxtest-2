@@ -1,6 +1,20 @@
 {
   "permissions": {
-    "openapi": []
+    "openapi": [
+      "wxacode.getUnlimited"
+    ]
   },
-  "timeout": 60
+  "timeout": 120,
+  "triggers": [
+    {
+      "name": "syncSpacexSplashTimer",
+      "type": "timer",
+      "config": "0 10 */2 * * * *"
+    },
+    {
+      "name": "merchantMembershipSweepTimer",
+      "type": "timer",
+      "config": "0 20 0 * * * *"
+    }
+  ]
 }

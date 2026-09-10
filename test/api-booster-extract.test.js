@@ -78,9 +78,25 @@ test('extractBoosterInfoForList：从 launcher_stage 解析 ASDS 着陆', () => 
   }
   const info = extractBoosterInfoForList(launch, 'Falcon 9', 'img.png')
   assert.equal(info.serialNumber, 'B1062')
+  assert.equal(info.launcherId, null)
   assert.equal(info.landingType, 'ASDS')
   assert.equal(info.landingLocation, 'OCISLY')
   assert.equal(isRecoverable(info), true)
+})
+
+test('extractBoosterInfoForList：嵌套 launcher.id 落到 launcherId', () => {
+  const info = extractBoosterInfoForList({
+    name: 'Starlink',
+    rocket: {
+      launcher_stage: [{
+        serial_number: 'B1062',
+        launcher: { id: 4034, serial_number: 'B1062' },
+        landing: { landing_location: { abbrev: 'OCISLY' } }
+      }]
+    }
+  }, 'Falcon 9', 'img.png')
+  assert.equal(info.serialNumber, 'B1062')
+  assert.equal(info.launcherId, 4034)
 })
 
 test('extractBoosterInfoSimple：可回收火箭名 → 推断 RTLS', () => {
@@ -188,6 +204,77 @@ test('LL2 着陆词表全集映射：10 种类型都有归一化结果且不误�
   assert.ok(buildLandingIcon('HELICOPTER_CATCH', 'neutral'))
   assert.ok(buildLandingIcon('RECOVERY', 'success'))
   assert.ok(buildLandingIcon('HL', 'neutral'))
+})
+
+test('倒计时图标对齐：EXPENDED（一次性使用）→ 橙色 dataURI 图标', () => {
+  const launch = {
+    name: 'Falcon 9 Block 5 | MRV-1',
+    rocket: {
+      launcher_stage: [{
+        serial_number: 'B1069',
+        reused: true,
+        landing: {
+          attempt: false,
+          success: null,
+          description: 'The Falcon 9 booster B1069 will be expended during its 32nd mission.',
+          landing_location: { id: 6, name: 'Atlantic Ocean', abbrev: 'ATL' },
+          type: { id: 8, name: 'Expended', abbrev: 'EXP' }
+        }
+      }]
+    }
+  }
+  const info = extractBoosterInfoForList(launch, 'Falcon 9', 'img.png')
+  assert.equal(info.landingType, 'EXPENDED')
+  assert.equal(info.landingLocation, 'ATL')
+  // 倒计时区域要有图标（与详情页同源），且与详情页同为失败橙色
+  assert.ok(String(info.landingTypeIcon).startsWith('data:image/svg+xml'))
+  assert.ok(info.landingTypeIcon.includes('rgb(249,115,22)'))
+  assert.equal(info.landingTypeIconStatus, 'failure')
+})
+
+test('倒计时图标对齐：SPLASHDOWN / HL 也有中性色图标', () => {
+  const mk = (type) => ({
+    rocket: {
+      launcher_stage: [{
+        serial_number: 'X1',
+        landing: { type: { abbrev: type }, landing_location: { abbrev: 'PAC', name: 'Pacific Ocean' } }
+      }]
+    }
+  })
+  const sd = extractBoosterInfoForList(mk('SD'), 'Rocket', 'img.png')
+  assert.equal(sd.landingType, 'SPLASHDOWN')
+  assert.ok(sd.landingTypeIcon.includes('rgb(255,255,255)'))
+  const hl = extractBoosterInfoForList(mk('HL'), 'Rocket', 'img.png')
+  assert.equal(hl.landingType, 'HL')
+  assert.ok(hl.landingTypeIcon.includes('rgb(255,255,255)'))
+})
+
+test('倒计时图标对齐：结构化 NET_CATCH → netRecoveryIcon 分支（保留 --net 放大样式）', () => {
+  const launch = {
+    rocket: {
+      launcher_stage: [{
+        serial_number: 'Y2',
+        landing: { type: { abbrev: 'Net', name: 'Arrestor Net Barge' } }
+      }]
+    }
+  }
+  const info = extractBoosterInfoForList(launch, 'Long March 10B', 'img.png')
+  assert.equal(info.landingType, 'NET_CATCH')
+  assert.equal(info.netRecovery, true)
+  assert.ok(String(info.netRecoveryIcon).startsWith('data:image/svg+xml'))
+  // 不走通用 landingTypeIcon 分支，避免 WXML 双图标
+  assert.equal(info.landingTypeIcon, undefined)
+})
+
+test('倒计时图标对齐：ASDS/RTLS 仍走 WXML 静态 SVG 兜底（不挂 dataURI）', () => {
+  const launch = {
+    rocket: {
+      launcher_stage: [{ serial_number: 'B1062', landing: { landing_location: { abbrev: 'OCISLY' } } }]
+    }
+  }
+  const info = extractBoosterInfoForList(launch, 'Falcon 9', 'img.png')
+  assert.equal(info.landingType, 'ASDS')
+  assert.equal(info.landingTypeIcon, undefined)
 })
 
 test('构型级 reusable：与真实着陆数据共存时不冲突', () => {

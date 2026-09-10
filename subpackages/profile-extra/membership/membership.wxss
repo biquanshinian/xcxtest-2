@@ -1,11 +1,11 @@
 /* membership.wxss — 星际通行证（金色会员风格，参考腾讯文档会员中心） */
 
 .container {
-  background: #000000;
+  background: #0B0C0E;
 }
 
 .content-scroll {
-  padding: 0 30rpx;
+  padding: 0 var(--space-lg);
 }
 
 /* ═══════════ 金色会员主卡 ═══════════
@@ -178,6 +178,9 @@
 .subscribe-note {
   margin-top: 18rpx;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
 }
 
 .subscribe-note text {
@@ -210,7 +213,6 @@
   padding: 30rpx 24rpx;
   border-radius: 24rpx;
   background: rgba(255, 200, 100, 0.06);
-  border: 1px solid rgba(255, 200, 100, 0.14);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -250,7 +252,6 @@
   padding: 28rpx 26rpx;
   border-radius: 22rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .product-info {
@@ -297,11 +298,55 @@
   color: #E2A93C;
 }
 
+/* ═══════════ 邀请得月卡入口 ═══════════ */
+.invite-entry {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 26rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.invite-entry--pressed {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.invite-entry-icon {
+  font-size: 44rpx;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.invite-entry-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.invite-entry-title {
+  font-size: 27rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.invite-entry-desc {
+  font-size: 21rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.invite-entry-arrow {
+  font-size: 34rpx;
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
 /* ═══════════ 账户管理卡（订单记录 + 用户ID） ═══════════ */
 .manage-card {
   border-radius: 22rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
   overflow: hidden;
 }
 
@@ -432,8 +477,10 @@
   width: 580rpx;
   padding: 60rpx 40rpx 40rpx;
   border-radius: 32rpx;
-  background: linear-gradient(165deg, #FFFBEE 0%, #FFF0C8 60%, #FFE7AC 100%);
-  border: 1px solid #F2D48A;
+  /* 会员金保留：改半透明金色渐变 + 磨砂，blur 失效时仍近实底可读 */
+  background: linear-gradient(165deg, rgba(255, 251, 238, 0.92) 0%, rgba(255, 240, 200, 0.88) 60%, rgba(255, 231, 172, 0.88) 100%);
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   text-align: center;
   position: relative;
 }
@@ -510,7 +557,7 @@
   padding: 12rpx;
 }
 
-/* ═══════════ iOS 暂未开放 ═══════════ */
+/* ═══════════ iOS Apple 支付说明 ═══════════ */
 .ios-notice {
   background: rgba(200, 130, 20, 0.1);
   color: #8A5500;
@@ -519,15 +566,6 @@
   font-size: 24rpx;
   margin-bottom: 22rpx;
   line-height: 1.5;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.ios-notice-tip {
-  color: #A5711C;
-  font-size: 22rpx;
-  opacity: 0.85;
 }
 
 /* 金卡外（深色页面背景上）的 iOS 提示：改用亮金文字保证可读性 */
@@ -535,29 +573,8 @@
   color: #E8B04A;
 }
 
-.section .ios-notice .ios-notice-tip {
-  color: rgba(232, 176, 74, 0.75);
-}
-
 .theme-light .section .ios-notice {
   color: #8A5500;
-}
-
-.theme-light .section .ios-notice .ios-notice-tip {
-  color: #A5711C;
-}
-
-.plan-list--disabled,
-.product-list--disabled {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.subscribe-btn--disabled {
-  background: #E5DCC8 !important;
-  color: #A39A85 !important;
-  box-shadow: none !important;
-  pointer-events: none;
 }
 
 /* ══════════════════════════════════════
@@ -575,8 +592,6 @@
 /* 权益宫格：白卡 + 暖金点缀 */
 .theme-light .benefit-cell {
   background: #FFFCF3;
-  border-color: #F2E3B8;
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .benefit-cell-name {
@@ -590,8 +605,6 @@
 /* 产品与账户管理：白卡 */
 .theme-light .product-item {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .product-name {
@@ -610,10 +623,29 @@
   color: #C57500;
 }
 
+.theme-light .invite-entry {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+}
+
+.theme-light .invite-entry--pressed {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light .invite-entry-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .invite-entry-desc {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .invite-entry-arrow {
+  color: var(--color-text-tertiary);
+}
+
 .theme-light .manage-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .manage-divider {
